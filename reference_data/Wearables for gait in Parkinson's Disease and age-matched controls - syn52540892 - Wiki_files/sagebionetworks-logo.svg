@@ -1,0 +1,307 @@
+<!doctype html>
+<html id="synapse.org" dir="ltr" lang="en-US">
+  <head>
+    <title>Wearables for gait in Parkinson's Disease and age-matched controls</title>
+    <meta name="description" content="" />
+    <meta property="og:title" content="Wearables for gait in Parkinson's Disease and age-matched controls" />
+    <meta property="og:description" content="" />
+    <meta name="author" content="Sage Bionetworks, info@sagebase.org" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' data: blob: 'unsafe-inline' 'unsafe-eval' *.synapse.org *.sagebase.org *.googleapis.com *.gstatic.com *.googletagmanager.com cdn.statuspage.io s3.amazonaws.com www.google-analytics.com kh896k90gyvg.statuspage.io *.youtube.com *.rstudio.com *.google.com *.shinyapps.io *.smartsheet.com sagebionetworks.jira.com 127.0.0.1:9876 esm.sh; img-src * data: blob:; connect-src https://* http://127.0.0.1:8888"
+    />
+    <meta
+      name="google-site-verification"
+      content="KIO5H8Bg3i0oAEAzTEMK5qIlYJLbd2zogLs_-im4rI0"
+    />
+    <meta name="msvalidate.01" content="E37AC1589F823723B64275D4BC890B1A" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Facebook Meta Tags -->
+    <meta property="og:url" content="https://www.synapse.org/Synapse:syn52540892/wiki/images/sagebionetworks-logo.svg" />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:image"
+      content="https://www.synapse.org/images/ogimage.png"
+    />
+
+    <!-- Twitter Meta Tags -->
+    <meta
+      property="twitter:image"
+      content="https://www.synapse.org/images/ogimage.png"
+    />
+    <meta name="twitter:title" content="Wearables for gait in Parkinson's Disease and age-matched controls" />
+    <meta name="twitter:description" content="" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@Sagebio" />
+    <meta name="twitter:creator" content="@Sagebio" />
+
+    
+
+    <!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
+    <!--[if lt IE 10]>
+      <div class="alert alert-warning" role="alert">
+        <a
+          class="alert-link"
+          href="http://windows.microsoft.com/en-us/internet-explorer/download-ie"
+          target="_blank"
+        >
+          You are using an outdated browser. For a faster, safer browsing
+          experience, click here to upgrade today.</a
+        >
+      </div>
+    <![endif]-->
+    <!--[if lt IE 9]>
+      <script src="bootstrap-3.0/assets/js/html5shiv.js"></script>
+      <script src="bootstrap-3.0/assets/js/respond.min.js"></script>
+    <![endif]-->
+
+    <!-- SWC-6609 removed <script src="js/json-ld-element-loader.js"></script> -->
+    <meta http-equiv="x-dns-prefetch-control" content="off" />
+
+    <!-- meta to instruct browser not to cache portal.html -->
+    <!-- http://stackoverflow.com/questions/1341089/using-meta-tags-to-turn-off-caching-in-all-browsers -->
+    <meta http-equiv="cache-control" content="max-age=0" />
+    <meta http-equiv="cache-control" content="no-cache" />
+    <meta http-equiv="expires" content="0" />
+    <meta http-equiv="pragma" content="no-cache" />
+    <!-- end cache control -->
+    <link rel="icon" href="/favicon.png?v=4" />
+    <link
+      href="/opensearch.xml"
+      rel="search"
+      title="Synapse"
+      type="application/opensearchdescription+xml"
+    />
+    <link rel="manifest" href="/manifest.json" />
+    <!-- Google Tag Manager -->
+    <script>
+      ;(function (w, d, s, l, i) {
+        w[l] = w[l] || []
+        w[l].push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' })
+        var f = d.getElementsByTagName(s)[0],
+          j = d.createElement(s),
+          dl = l != 'dataLayer' ? '&l=' + l : ''
+        j.async = true
+        j.src = 'https://www.googletagmanager.com/gtm.js?id=' + i + dl
+        f.parentNode.insertBefore(j, f)
+      })(window, document, 'script', 'dataLayer', 'GTM-KPW4KS62')
+    </script>
+    <!-- End Google Tag Manager -->
+    <script>
+      // Modern browsers natively support this function.
+      if (typeof Object.assign !== 'function') {
+        document.write(
+          '<div class="alert alert-danger" role="alert" style="margin:0px">Unsupported browser: A modern browser is required for security, reliability, and performance.</div>',
+        )
+      }
+    </script>
+    <script>
+      // SWC-5959: Before loading the SRC library, set value so actual column names are shown in Synapse.org
+      window.localStorage.setItem('force-display-original-column-names', 'true')
+    </script>
+    <script>
+      // determine cdn endpoint (staging or prod, do not use a cdn for local or dev builds)
+      var cdnEndpoint = '//cdn-' + location.hostname + '/'
+      var processEnvironment = 'production'
+      var synapseOrgRegex = /(www|staging|tst)\.synapse\.org$/
+
+      if (!synapseOrgRegex.test(location.hostname)) {
+        cdnEndpoint = '/'
+        processEnvironment = 'development'
+      }
+
+      // define process.env.NODE_ENV for any library that fails to export
+      process = {
+        env: {
+          NODE_ENV: processEnvironment, // production or development
+        },
+      }
+
+      window.cdnEndpoint = cdnEndpoint
+
+      function loadJs(src) {
+        // these are dynamically added, so they do not block rendering while being downloaded
+        let scriptElement = document.createElement('script')
+        scriptElement.src = src
+        scriptElement.async = false // in order
+        document.head.appendChild(scriptElement)
+      }
+      function loadCss(src) {
+        if (document.createStyleSheet) document.createStyleSheet(src)
+        else {
+          var linkElement = document.createElement('link')
+          linkElement.href = src
+          linkElement.rel = 'stylesheet'
+          linkElement.type = 'text/css'
+          document.head.appendChild(linkElement)
+        }
+      }
+
+      loadCss(cdnEndpoint + 'loadinglogo.css')
+      loadJs(cdnEndpoint + 'js/compiled-closure-lib.js')
+      loadJs(cdnEndpoint + 'Portal/Portal.nocache.js')
+      loadCss(
+        'https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap',
+      )
+      loadCss('https://fonts.googleapis.com/icon?family=Material+Icons')
+
+      let reactPath, reactDomPath, srcPath
+
+      if (processEnvironment === 'production') {
+        reactPath = cdnEndpoint + 'generated/react.production.min.js'
+        reactDomPath = cdnEndpoint + 'generated/react-dom.production.min.js'
+        srcPath =
+          cdnEndpoint + 'generated/synapse-react-client.production.min.js'
+      } else {
+        reactPath = cdnEndpoint + 'generated/react.development.js'
+        reactDomPath = cdnEndpoint + 'generated/react-dom.development.js'
+        srcPath = cdnEndpoint + 'generated/synapse-react-client.development.js'
+      }
+
+      // TODO: Workaround for SWC-6664
+      // Override the conditional above and just use the production distribution
+
+      loadCss(cdnEndpoint + 'generated/swc.css')
+      loadJs(cdnEndpoint + 'generated/jquery.min.js')
+      loadJs(cdnEndpoint + 'generated/jquery-ui.min.js')
+      loadJs(cdnEndpoint + 'js/back-forward-nav-handler.js')
+      loadJs(cdnEndpoint + 'generated/moment.min.js')
+      loadJs(cdnEndpoint + 'generated/jsplumb.min.js')
+      loadJs(cdnEndpoint + 'js/jquery.tablesorter.min.js')
+      loadJs(cdnEndpoint + 'js/jquery.tablesorter.scinot.js')
+      loadCss(cdnEndpoint + 'icons/font/synapseicons.css?v=1')
+      loadCss(cdnEndpoint + 'generated/font-awesome.css')
+      loadJs(cdnEndpoint + 'js/highlight.pack.js')
+      loadJs(cdnEndpoint + 'js/init-nchart.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-br.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-center-text.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-container.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-emphasis-alt.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-inline-comments.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-math.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-strikethrough-alt.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-sub.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-sup.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-synapse.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-synapse-heading.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-synapse-math.js')
+      loadJs(cdnEndpoint + 'generated/markdown-it-synapse-table.js')
+      loadJs(cdnEndpoint + 'generated/katex/katex.min.js')
+      loadCss(cdnEndpoint + 'generated/katex/katex.min.css')
+      loadJs(cdnEndpoint + 'js/polyfill-2.js')
+      loadJs(cdnEndpoint + 'generated/xss.min.js')
+      loadJs(cdnEndpoint + 'generated/pica.min.js')
+      loadJs(reactPath)
+      loadJs(reactDomPath)
+      loadJs(cdnEndpoint + 'generated/react-transition-group.min.js')
+      loadJs(cdnEndpoint + 'generated/prop-types.min.js')
+      loadJs(cdnEndpoint + 'generated/react-measure.js')
+      loadJs(cdnEndpoint + 'generated/plotly.min.js')
+      loadJs(cdnEndpoint + 'generated/create-plotly-component.min.js')
+      loadJs(cdnEndpoint + 'generated/react-router-dom.min.js')
+      loadJs(cdnEndpoint + 'generated/universalCookie.min.js')
+      loadJs(cdnEndpoint + 'generated/react-bootstrap.min.js')
+      loadJs(srcPath) // We don't load SRC's scss because we include it in our own compiled scss
+      loadJs(cdnEndpoint + 'generated/croppie.min.js')
+      loadCss(cdnEndpoint + 'js/diff/diffview.css')
+      loadCss(cdnEndpoint + 'generated/croppie.css')
+      loadCss(cdnEndpoint + 'css/highlight-js-default.css')
+      loadCss(cdnEndpoint + 'generated/jquery-ui.min.css')
+      loadJs(cdnEndpoint + 'js/linkify.min.js')
+      loadJs(cdnEndpoint + 'js/linkify-string.min.js')
+      loadJs('//cdn.statuspage.io/se-v2.js')
+      // loadJs("//kh896k90gyvg.statuspage.io/embed/script.js");
+      loadJs(cdnEndpoint + 'generated/papaparse.min.js')
+    </script>
+    <script type="module">
+      // react-query only ships ESM. esm.sh is a CDN that will 'bundle' dependencies for us
+      import * as ReactQuery from 'https://esm.sh/@tanstack/react-query@5.22.2'
+      window.ReactQuery = ReactQuery
+    </script>
+  </head>
+  <body id="body">
+    
+    <div>
+      <!-- GWT history support -->
+      <iframe
+        src="javascript:''"
+        id="__gwt_historyFrame"
+        tabindex="-1"
+        style="position: absolute; width: 0; height: 0; border: 0"
+      ></iframe>
+      <div id="dropzone" class="dropzone" style="display: none">
+        <h2 class="center" style="color: white; padding-top: 180px">
+          <span class="fa fa-cloud-upload"></span>
+          Drop files to upload
+        </h2>
+      </div>
+      <noscript>
+        <div
+          style="
+            width: 22em;
+            position: absolute;
+            left: 50%;
+            margin-left: -11em;
+            color: red;
+            background-color: white;
+            border: 1px solid red;
+            padding: 4px;
+            font-family: sans-serif;
+          "
+        >
+          Your web browser must have JavaScript enabled in order for this
+          application to display correctly.<br />
+          If you are an automated web crawler from a search engine, follow this
+          <a href="https://synapse.prod.sagebase.org/Home:0"
+            >AJAX application crawl link</a
+          >
+        </div>
+      </noscript>
+      <!-- Google Tag Manager (noscript) -->
+      <noscript>
+        <iframe
+          src="https://www.googletagmanager.com/ns.html?id=GTM-KPW4KS62"
+          height="0"
+          width="0"
+          style="display: none; visibility: hidden"
+        ></iframe>
+      </noscript>
+      <!-- End Google Tag Manager (noscript) -->
+      <!-- This is the GWT-generated body -->
+      <div id="alertWrapper">
+        <div id="alertContainer"></div>
+      </div>
+      <div id="initialLoadingUI" style="padding-top: 180px">
+        <div
+          class="spinner"
+          style="
+            width: 80px;
+            height: 80px;
+            background-size: 80px 80px;
+            display: block;
+            margin: auto;
+          "
+        ></div>
+        <h4
+          style="
+            color: #1e7098;
+            margin-top: 10px;
+            font-family: Sans-serif;
+            text-align: center;
+          "
+        >
+          <q>Wearables for gait in Parkinson's Disease and age-matched controls</q> page is loading&hellip;
+        </h4>
+      </div>
+      <div id="headerPanel" class="zeroOpacity"></div>
+      <div id="rootPanel" class="zeroOpacity"></div>
+      <div id="toastContainer"></div>
+      <div id="footerPanel"></div>
+    </div>
+    <div class="clear"></div>
+  </body>
+</html>
