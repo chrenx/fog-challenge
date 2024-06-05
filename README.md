@@ -1,6 +1,6 @@
 # Data
 **dataset_fog_release**:
-- subject 4 and 10 didn't show ant freeze
+- subject 4 and 10 didn't show any freeze
 - data format in column:
     1. time (millisec)
     1. ankle acc - horizontal forward (mg)
