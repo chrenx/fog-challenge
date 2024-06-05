@@ -1,7 +1,5 @@
 ALL_DATASETS = ['dataset_fog_release', 'kaggle_pd_data']
 
-ONE_TIME_TRIAL = 100
-
 PHASE2_DATA_HEAD = [
     'Time',
     # --------------------------------------------------------------------------------
