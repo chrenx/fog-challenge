@@ -6,29 +6,60 @@ Sample data is reference_data/sample_pfda/ValidationDataset-sampledata.csv
 
 import argparse, csv, os
 
+import torch
 import numpy as np
+import pandas as pd
 from scipy.constants import physical_constants
 from tqdm import tqdm
 
 from utils import config
 
 
+def sample_normalize(sample):
+    """Mean-std normalization function. 
+
+    Args:
+        sample: (N,)
+
+    Returns:
+        normalized_sample: (N,)
+    """
+    # sample: (N,)
+    if not isinstance(sample, torch.Tensor):
+        sample = torch.tensor(sample)
+    mean = torch.mean(sample)
+    std = torch.std(sample)
+    # Normalize the sample and handle division by zero
+    eps = 1e-8
+    normalized_sample = (sample - mean) / (std + eps)
+    return normalized_sample  # (N,)
+
+def make_single_data(dpath, dataset_name):
+    csv_files = os.listdir(dpath)
+    single_csv = {}
+    for csv_file in tqdm(csv_files, total=len(csv_files), desc="Make a single file"):
+        if not csv_file.startswith('rectified') or not csv_file.endswith('.csv'):
+            continue
+        series = pd.read_csv(os.path.join(dpath, csv_file))
+        series = series[config.FEATURES_LIST]
+        print(series.columns.tolist())
+        print(series.head())
+        for feat in config.FEATURES_LIST:
+            series[feat] = sample_normalize(series[feat].values)
+
+        print(series.head())
+        break
+        
+            
+
 def process_dataset_fog_release(dpath=None):
     print('---- Processing dataset_fog_release')
     dpath = 'data/dataset_fog_release/dataset' if dpath is None else dpath
     files_list = sorted(os.listdir(dpath))
     
-    csv_path = os.path.join('data', 'rectified_data')
+    csv_path = os.path.join('data', 'rectified_data', 'dataset_fog_release')
     
-    data_folder = os.listdir(csv_path)
-    rectified_csv_files = [file for file in data_folder if file.startswith('rectified') \
-                                                           and file.endswith('.csv')]
-    rectified_csv_files = sorted(rectified_csv_files, key=lambda x: (int(x[:-4].split('_')[1])))
-    if len(rectified_csv_files) > 0:
-        csv_count = rectified_csv_files[-1][:-4].split('_')[1]
-        csv_count += 1
-    else:
-        csv_count = 1
+    csv_count = 1
     
     trial_gt = []
     max_time_series = 0
@@ -40,8 +71,11 @@ def process_dataset_fog_release(dpath=None):
         
         cur_trial_gt = [] # [ ['GroundTruth_Trial1'], [0], [1], [1], ... ]
         merged_lines = []
+        
+        not_start_experiment = True
+        
         with open(file_path, 'r') as f:
-            line_count = 0
+            cutoff_line = 0
 
             cur_trial_gt.append(f"GroundTruth_Trial{csv_count}")
             
@@ -50,20 +84,32 @@ def process_dataset_fog_release(dpath=None):
                 
                 if not line:
                     break
-                
-                line_count += 1
+
                 line = np.array(list(map(float, line.strip().split())))                
                 line[:-1] /= 1000
                 
                 # make data that was not in experiment all zero
                 annotation = int(line[-1])
-                if annotation == 0:
-                    line[1:-1] = 0.0
-                else:
-                    # g --> m/s^2
-                    line[1:-1] *= physical_constants['standard acceleration of gravity'][0]
                 
-                annotation = 1 if annotation == 2 else 0
+                if not_start_experiment:
+                    if annotation == 0:
+                        continue
+                    else:
+                        not_start_experiment = False
+                
+                # g --> m/s^2
+                line[1:-1] *= physical_constants['standard acceleration of gravity'][0]
+                
+                if annotation == 0:
+                    annotation = ''  # out of experiment
+                    cutoff_line += 1
+                elif annotation == 1:
+                    annotation = 0  # no freeze
+                    cutoff_line = 0
+                else: 
+                    annotation = 1  # freeze
+                    cutoff_line = 0
+                    
                 cur_trial_gt.append(annotation)
             
                 merged_lines.append({
@@ -80,9 +126,13 @@ def process_dataset_fog_release(dpath=None):
                     'LowerBack_Acc_Y': str(line[9]),
                     'LowerBack_Acc_Z': str(line[8]),
                 })
+            
+        # cut off post data that are out of experiment
+        merged_lines = merged_lines[:-cutoff_line]
+        cur_trial_gt = cur_trial_gt[:-cutoff_line]            
                     
         # write to the training data     
-        csv_file_path = os.path.join(csv_path, f"rectifed_{csv_count}_dataset_fog_release.csv")           
+        csv_file_path = os.path.join(csv_path, f"rectified_{csv_count}_dataset_fog_release.csv")           
         with open(csv_file_path, 'w') as rectified_csv:
             writer = csv.DictWriter(rectified_csv, fieldnames=config.PHASE2_DATA_HEAD)
             writer.writeheader()
@@ -122,11 +172,13 @@ if __name__ == "__main__":
     for dataset in opt.datasets:
         match dataset:
             case 'dataset_fog_release':
-                # continue
-                process_dataset_fog_release()
+                # process_dataset_fog_release()
+                make_single_data(dpath='data/rectified_data/dataset_fog_release', 
+                                 dataset_name="dataset_fog_release")
+                pass
             case 'kaggle_pd_data':
-                continue
-                process_kaggle_pd_data()
+                # process_kaggle_pd_data()
+                pass
             case _:
                 print(f"**** {dataset} dataset doesn\'t exist")
          

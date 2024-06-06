@@ -1,5 +1,9 @@
 ALL_DATASETS = ['dataset_fog_release', 'kaggle_pd_data']
 
+FEATURES_LIST = ['L_Ankle_Acc_X', 'L_Ankle_Acc_Y', 'L_Ankle_Acc_Z', 
+                 'L_MidLatThigh_Acc_X', 'L_MidLatThigh_Acc_Y', 'L_MidLatThigh_Acc_Z',
+                 'LowerBack_Acc_X', 'LowerBack_Acc_Y', 'LowerBack_Acc_Z']
+
 PHASE2_DATA_HEAD = [
     'Time',
     # --------------------------------------------------------------------------------

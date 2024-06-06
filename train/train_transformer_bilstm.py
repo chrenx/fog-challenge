@@ -4,6 +4,8 @@ from datetime import datetime
 import torch
 import numpy as np
 
+from models.transformer_bilstm import TransformerBiLSTM
+from utils.config import FEATURES_LIST
 from utils.train_util import save_group_args
 
 
@@ -15,12 +17,12 @@ def run_train(opt):
 def parse_opt():
     parser = argparse.ArgumentParser()
     
-    # project information: names
+    # project information: names ===============================================
     parser.add_argument('--project', default='runs/train', help='project/name')
     parser.add_argument('--exp_name', default='transfomer_bilstm', 
                                             help='save to project/name')
 
-    # wandb setup
+    # wandb setup ==============================================================
     parser.add_argument('--disable_wandb', action='store_true')
     parser.add_argument('--wandb_pj_name', type=str, default='', help='wandb project name')
     parser.add_argument('--entity', default='', help='W&B entity')
@@ -29,10 +31,16 @@ def parse_opt():
     parser.add_argument('--root_dpath', default='data/rectified_data', 
                                            help='root data directory')
     
-    # GPU
+    # GPU ======================================================================
     parser.add_argument('--device', default='0', help='assign gpu')
+    
+    # training monitor =========================================================
+    parser.add_argument('--save_and_sample_every', type=int, default=20000, 
+                                                        help='save and sample')
+    parser.add_argument('--save_best_model', action='store_true', 
+                                                  help='save best model during training')
 
-    # hyperparameters
+    # hyperparameters ==========================================================
     parser.add_argument('--seed', type=int, default=42, 
                                       help='set up seed for torch, numpy, random')
     parser.add_argument('--batch_size', type=int, default=64, help='batch size')
@@ -40,13 +48,20 @@ def parse_opt():
                                                help='generator_learning_rate')
     parser.add_argument('--train_num_steps', type=int, default=8000000, 
                                                  help='number of training steps')
-    # parser.add_argument('--batch_size', type=int, default=64, help='batch size')
     
-    # training monitor
-    parser.add_argument('--save_and_sample_every', type=int, default=20000, 
-                                                        help='save and sample')
-    parser.add_argument('--save_best_model', action='store_true', 
-                                                  help='save best model during training')
+    parser.add_argument('--block_size', type=int, default=15552)
+    parser.add_argument('--block_stride', type=int, default=15552 // 16) # 972
+    parser.add_argument('--patch_size', type=int, default=18)
+
+    parser.add_argument('--fog_model_input_dim', type=int, default=18*len(FEATURES_LIST))
+    parser.add_argument('--fog_model_dim', type=int, default=320)
+    parser.add_argument('--fog_model_num_heads', type=int, default=8)
+    parser.add_argument('--fog_model_num_encoder_layers', type=int, default=5)
+    parser.add_argument('--fog_model_num_lstm_layers', type=int, default=2)
+    parser.add_argument('--fog_model_first_dropout', type=float, default=0.1)
+    parser.add_argument('--fog_model_encoder_dropout', type=float, default=0.1)
+    parser.add_argument('--fog_model_mha_dropout', type=float, default=0.0)
+    parser.add_argument('--feats_list', type=str, nargs='+', default=FEATURES_LIST)
 
     opt = parser.parse_args()
         
@@ -87,7 +102,6 @@ if __name__ == "__main__":
                         datefmt='%Y-%m-%d-%H:%M:%S',
                         level=os.environ.get("LOGLEVEL", "INFO"))
     MYLOGGER.setLevel(logging.INFO)
-    
     MYLOGGER.info(f"Running at {cur_time}")
     MYLOGGER.info(f"Using device: {opt.device}")
     
