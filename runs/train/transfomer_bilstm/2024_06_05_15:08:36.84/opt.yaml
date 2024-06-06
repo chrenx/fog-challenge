@@ -1,0 +1,15 @@
+seed: 42
+project: runs/train
+exp_name: transfomer_bilstm
+gpu: '7'
+disable_wandb: true
+wandb_pj_name: fog-challenge
+entity: chrenx
+root_dpath: data/rectified_data
+batch_size: 64
+learning_rate: 0.0002
+train_num_steps: 10
+save_and_sample_every: 10
+save_best_model: true
+save_dir: runs/train/transfomer_bilstm/2024_06_05_15:08:36.84
+device: cuda:7

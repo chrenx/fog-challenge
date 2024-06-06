@@ -1,0 +1,16 @@
+project: runs/train
+exp_name: transfomer_bilstm
+disable_wandb: true
+wandb_pj_name: fog-challenge
+entity: chrenx
+root_dpath: data/rectified_data
+device: cuda:7
+seed: 42
+batch_size: 64
+learning_rate: 0.0002
+train_num_steps: 10
+save_and_sample_every: 10
+save_best_model: true
+save_dir: runs/train/transfomer_bilstm/2024_06_05_15:56:16.92
+device_info: NVIDIA TITAN RTX
+weights_dir: runs/train/transfomer_bilstm/2024_06_05_15:56:16.92/weights

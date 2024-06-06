@@ -63,14 +63,12 @@ class CNN1D(nn.Module):
         x = self.sigmoid(x)
         return x
 
-# Define model, loss, and optimizer
 seq_len = 1024
-num_features = 5  # Adjust this based on the number of features in your data
+num_features = 5  
 model = CNN1D(seq_len, num_features)
 criterion = nn.BCELoss()
 optimizer = optim.Adam(model.parameters(), lr=3e-5, betas=(0.9, 0.999))
 
-# Example forward pass
 x = torch.randn(1, num_features, seq_len)  # Example input tensor
 output = model(x)
 print(output)
