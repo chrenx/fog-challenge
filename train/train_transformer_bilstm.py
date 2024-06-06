@@ -40,6 +40,7 @@ def parse_opt():
                                                help='generator_learning_rate')
     parser.add_argument('--train_num_steps', type=int, default=8000000, 
                                                  help='number of training steps')
+    # parser.add_argument('--batch_size', type=int, default=64, help='batch size')
     
     # training monitor
     parser.add_argument('--save_and_sample_every', type=int, default=20000, 
