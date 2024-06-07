@@ -30,8 +30,7 @@ class Trainer(object):
         
     def prepare_dataloader(self):
         MYLOGGER.info("Loading training data ...")
-        train_dataset = FoGDataset(self.opt, train=True)
-        val_dataset = FoGDataset(self.opt, train=False)
+        full_dataset = FoGDataset(self.opt)
         
         #TODO: split dataset 80% for train and 20% for validation
     

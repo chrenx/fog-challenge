@@ -1,0 +1,11 @@
+2024-06-07-15:54:49.256 INFO Running at 2024_06_07_15:54:49.18
+2024-06-07-15:54:49.256 INFO Using device: cuda:7
+2024-06-07-15:54:49.417 INFO Loading training data ...
+2024-06-07-15:54:49.417 INFO -------- Initialize FoG dataset --------
+2024-06-07-15:54:49.420 WARNING data/rectified_data/kaggle_pd_data/all_kaggle_pd_data.p cannot be loaded.
+2024-06-07-15:54:49.420 WARNING data/rectified_data/kaggle_pd_data/train_kaggle_pd_data.p cannot be loaded.
+2024-06-07-15:54:51.353 INFO Finishing loading data/rectified_data/dataset_fog_release/train_dataset_fog_release.p
+2024-06-07-15:54:51.353 INFO -------- Initialize FoG dataset --------
+2024-06-07-15:54:51.354 WARNING data/rectified_data/kaggle_pd_data/all_kaggle_pd_data.p cannot be loaded.
+2024-06-07-15:54:51.354 WARNING data/rectified_data/kaggle_pd_data/val_kaggle_pd_data.p cannot be loaded.
+2024-06-07-15:54:51.609 INFO Finishing loading data/rectified_data/dataset_fog_release/val_dataset_fog_release.p

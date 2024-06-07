@@ -1,0 +1,5 @@
+2024-06-07-11:30:29.565 INFO Running at 2024_06_07_11:30:29.50
+2024-06-07-11:30:29.565 INFO Using device: cuda:7
+2024-06-07-11:30:29.678 INFO Loading training data ...
+2024-06-07-11:30:29.678 INFO -------- Initialize FoG dataset --------
+2024-06-07-11:30:29.679 INFO ---- all_kaggle_pd_data.p cannot be loaded.
