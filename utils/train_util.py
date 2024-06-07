@@ -1,5 +1,9 @@
 import os, yaml
 
+def cycle_dataloader(dl):
+    while True:
+        for data in dl:
+            yield data
 
 def save_group_args(opt):
     # Save running settings

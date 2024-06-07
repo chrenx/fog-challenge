@@ -4,7 +4,7 @@ https://www.synapse.org/Synapse:syn52540892/wiki/623753
 Sample data is reference_data/sample_pfda/ValidationDataset-sampledata.csv
 '''
 
-import argparse, csv, os
+import argparse, csv, joblib, os, random
 
 import torch
 import numpy as np
@@ -20,11 +20,9 @@ def sample_normalize(sample):
 
     Args:
         sample: (N,)
-
     Returns:
         normalized_sample: (N,)
     """
-    # sample: (N,)
     if not isinstance(sample, torch.Tensor):
         sample = torch.tensor(sample)
     mean = torch.mean(sample)
@@ -42,15 +40,20 @@ def make_single_data(dpath, dataset_name):
             continue
         series = pd.read_csv(os.path.join(dpath, csv_file))
         series = series[config.FEATURES_LIST]
-        print(series.columns.tolist())
-        print(series.head())
-        for feat in config.FEATURES_LIST:
-            series[feat] = sample_normalize(series[feat].values)
-
-        print(series.head())
-        break
         
-            
+        filename = csv_file[:-4]
+        
+        single_csv[filename] = {}
+        gt_csv = pd.read_csv(os.path.join(dpath, f"gt_{dataset_name}.csv"))
+        gt_csv = gt_csv.fillna(2)
+        csv_id = csv_file.split('_')[1]
+        actual_data_len = len(series[config.FEATURES_LIST[0]].values)
+        gt_data = torch.tensor(gt_csv[f"GroundTruth_Trial{csv_id}"].values[:actual_data_len], 
+                               dtype=torch.int8)
+        single_csv[filename]['gt'] = gt_data
+        for feat in config.FEATURES_LIST:
+            single_csv[filename][feat] = sample_normalize(series[feat].values)
+        joblib.dump(single_csv, open(os.path.join(dpath, f"all_{dataset_name}.p"), 'wb'))
 
 def process_dataset_fog_release(dpath=None):
     print('---- Processing dataset_fog_release')
@@ -148,7 +151,7 @@ def process_dataset_fog_release(dpath=None):
         
         csv_count += 1
     
-    # write to ground truth file
+    # pad and write to ground truth file
     for i in range(len(trial_gt)):
         while len(trial_gt[i]) < max_time_series:
             trial_gt[i].append('')
@@ -173,8 +176,10 @@ if __name__ == "__main__":
         match dataset:
             case 'dataset_fog_release':
                 # process_dataset_fog_release()
-                make_single_data(dpath='data/rectified_data/dataset_fog_release', 
-                                 dataset_name="dataset_fog_release")
+                # make_single_data(dpath='data/rectified_data/dataset_fog_release', 
+                #                  dataset_name="dataset_fog_release")
+                # split_train_val(dpath='data/rectified_data/dataset_fog_release', 
+                #                 dataset_name="dataset_fog_release")
                 pass
             case 'kaggle_pd_data':
                 # process_kaggle_pd_data()

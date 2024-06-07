@@ -1,17 +1,43 @@
 import argparse, logging, os, random, shutil
 from datetime import datetime
 
-import torch
+import torch, wandb
 import numpy as np
 
+from data.fog_dataset import FoGDataset
 from models.transformer_bilstm import TransformerBiLSTM
 from utils.config import FEATURES_LIST
-from utils.train_util import save_group_args
+from utils.train_util import cycle_dataloader, save_group_args
 
 
 MYLOGGER = logging.getLogger()
 
+def cycle_dataloader(dl):
+    while True:
+        for data in dl:
+            yield data
+
+class Trainer(object):
+    def __init__(self, model, opt):
+        super().__init__()
+        if not opt.disable_wandb:
+            MYLOGGER.info("Initialize W&B")
+            wandb.init(config=opt, project=opt.wandb_pj_name, entity=opt.entity, 
+                       name=opt.exp_name, dir=opt.save_dir)
+        self.model = model
+        self.opt = opt
+        self.prepare_dataloader()
+        
+    def prepare_dataloader(self):
+        MYLOGGER.info("Loading training data ...")
+        full_dataset = FoGDataset(self.opt)
+        
+        #TODO: split dataset 80% for train and 20% for validation
+    
+
 def run_train(opt):
+    model = TransformerBiLSTM(opt)
+    trainer = Trainer(model, opt)
     pass
 
 def parse_opt():
@@ -24,8 +50,9 @@ def parse_opt():
 
     # wandb setup ==============================================================
     parser.add_argument('--disable_wandb', action='store_true')
-    parser.add_argument('--wandb_pj_name', type=str, default='', help='wandb project name')
-    parser.add_argument('--entity', default='', help='W&B entity')
+    parser.add_argument('--wandb_pj_name', type=str, default='fog-challenge', 
+                                           help='wandb project name')
+    parser.add_argument('--entity', default='', help='W&B entity or username')
 
     # data path
     parser.add_argument('--root_dpath', default='data/rectified_data', 
@@ -33,6 +60,7 @@ def parse_opt():
     
     # GPU ======================================================================
     parser.add_argument('--device', default='0', help='assign gpu')
+    parser.add_argument('--device_info', type=str, default='')
     
     # training monitor =========================================================
     parser.add_argument('--save_and_sample_every', type=int, default=20000, 
@@ -62,6 +90,10 @@ def parse_opt():
     parser.add_argument('--fog_model_encoder_dropout', type=float, default=0.1)
     parser.add_argument('--fog_model_mha_dropout', type=float, default=0.0)
     parser.add_argument('--feats_list', type=str, nargs='+', default=FEATURES_LIST)
+    
+    # file tracker =============================================================
+    parser.add_argument('--save_dir', type=str, default='')
+    parser.add_argument('--weights_dir', type=str, default='')
 
     opt = parser.parse_args()
         

@@ -25,3 +25,4 @@ vertical ground reaction force records of subjects as they walked at their usual
     - 10-17: VGRF on 8 sensors under right foot
     - 18: total force under left foot
     - 19: total force under right foor
+
