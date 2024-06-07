@@ -3,6 +3,7 @@ from datetime import datetime
 
 import torch, wandb
 import numpy as np
+from torch.utils import data
 
 from data.fog_dataset import FoGDataset
 from models.transformer_bilstm import TransformerBiLSTM
@@ -12,10 +13,6 @@ from utils.train_util import cycle_dataloader, save_group_args
 
 MYLOGGER = logging.getLogger()
 
-def cycle_dataloader(dl):
-    while True:
-        for data in dl:
-            yield data
 
 class Trainer(object):
     def __init__(self, model, opt):
@@ -26,14 +23,25 @@ class Trainer(object):
                        name=opt.exp_name, dir=opt.save_dir)
         self.model = model
         self.opt = opt
-        self.prepare_dataloader()
+        self._prepare_dataloader()
         
-    def prepare_dataloader(self):
+    def _prepare_dataloader(self):
         MYLOGGER.info("Loading training data ...")
-        train_dataset = FoGDataset(self.opt, train=True)
-        val_dataset = FoGDataset(self.opt, train=False)
         
-        #TODO: split dataset 80% for train and 20% for validation
+        self.train_ds = FoGDataset(self.opt, mode='train')
+        self.val_ds = FoGDataset(self.opt, mode='val')
+        
+        self.train_dl = cycle_dataloader(data.DataLoader(self.train_ds, 
+                                                   batch_size=self.opt.batch_size, 
+                                                   shuffle=True, 
+                                                   pin_memory=True, 
+                                                   num_workers=0))
+        #TODO: Change it back
+        self.val_dl = cycle_dataloader(data.DataLoader(self.val_ds, 
+                                                       batch_size=self.opt.batch_size, 
+                                                       shuffle=False, 
+                                                       pin_memory=True, 
+                                                       num_workers=0))
     
 
 def run_train(opt):
