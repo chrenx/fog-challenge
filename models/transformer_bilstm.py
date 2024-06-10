@@ -60,9 +60,11 @@ class Encoder(nn.Module):
                                          requires_grad=True)
         
     def forward(self, x, training=True):
-        # x: (B, S, P*num_feats), Example shape (32, 864, 54)
+        # x: (B, S, P*num_feats), Example shape (32, 864, 18*9)
         batch_size = x.size(0)
         x = x / 25.0  # Normalization attempt in the segment [-1, 1]
+        print("+++++++++")
+        print(x.dtype)
         x = self.first_linear(x)  # (batch_size, sequence_len, fog_model_dim)
 
         if training:  # augmentation by randomly roll of the position encoding tensor
@@ -89,13 +91,13 @@ class TransformerBiLSTM(nn.Module):
         super(TransformerBiLSTM, self).__init__()
         
         self.encoder = Encoder(opt)
-        self.last_linear = nn.Linear(opt.fog_model_dim * 2, 1)
+        self.last_linear = nn.Linear(opt.fog_model_dim * 2, 3)
         
     def forward(self, x):  
-        # x: (B,S,P*num_feats), e.g. (32, 864, 54)
+        # x: (B, BLKS//P, P*num_feats), e.g. (32, 864, 18*9)
         x = self.encoder(x)  # (B,S,D*2), e.g. (32, 864, 640)
-        x = self.last_linear(x)  # (B,S,1), e.g. (32, 864, 1)
+        x = self.last_linear(x)  # (B,S,1), e.g. (32, 864, 3)
         x = torch.sigmoid(x)  # Sigmoid activation
-        return x  # (B,S,1)
+        return x  # (B,BLKS//P,3)
     
     

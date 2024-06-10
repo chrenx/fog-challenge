@@ -1,0 +1,25 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            // "program": "${workspaceFolder}",
+            "module": "train.train_transformer_bilstm",
+            "console": "integratedTerminal",
+            "args": ["--device",                    "5", 
+                     "--exp_name",                  "transfomer_bilstm", 
+                     "--wandb_pj_name",             "challenge",
+                     "--entity",                    "chrenx", 
+                     "--save_and_sample_every",     "10",
+                     "--train_num_steps",           "10",
+                     "--save_best_model",
+                     "--disable_wandb"],
+        }
+    ]
+}
