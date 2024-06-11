@@ -5,5 +5,5 @@ python -m train.train_transformer_bilstm \
        --entity                chrenx \
        --save_best_model        \
        --data_name             train1_dataset_fog_release_blks15552_ps18.p val1_dataset_fog_release_blks15552_ps18.p \
-       --disable_wandb         #!!!               
+    #    --disable_wandb         #!!!               
 

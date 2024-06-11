@@ -51,10 +51,8 @@ class Trainer(object):
         
         self.scheduler_optim = torch.optim.lr_scheduler.ReduceLROnPlateau(
                                                 optimizer=self.optimizer,
-                                                verbose=True,
                                                 factor=opt.lr_scheduler_factor,
-                                                patience=opt.lr_scheduler_patience
-                                )
+                                                patience=opt.lr_scheduler_patience)
         
     def _prepare_dataloader(self, opt):
         MYLOGGER.info("Loading training data ...")
@@ -115,15 +113,15 @@ class Trainer(object):
         loss *= mask
         return loss.sum() / mask.sum()
 
-    def _evaluation_metrics(self, pred, gt):
+    def _evaluation_metrics(self, output, gt):
         """Generate precision, recall, and f1 score.
 
         Args:
-            pred: (B, BLKS//P, 2)   # prob class
+            output: (B, BLKS//P, 2)   # prob class
             gt:   (B, BLKS//P, 3)   # the third pos indicates the class
         """
         # Convert the model output probabilities to class predictions
-        pred = torch.argmax(pred, dim=-1)  # (B, BLKS//P)
+        pred = torch.argmax(output, dim=-1)  # (B, BLKS//P)
 
         # Extract the first two classes from the ground truth
         real = torch.argmax(gt[:, :, :2], dim=-1)  # (B, BLKS//P)
@@ -145,7 +143,45 @@ class Trainer(object):
         recall = tp / (tp + fn + 1e-8)
         f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
         
-        return precision, recall, f1          
+        # Calculate mean average precision (mAP)
+        # Create a list to store the precision values at different thresholds
+        precisions = []
+        recalls = []
+        
+        # Iterate over thresholds from 0 to 1 with a step size
+        thresholds = torch.linspace(0, 1, steps=101)
+        for t in thresholds:
+            # Binarize predictions based on the threshold
+            pred_binary = (output[:, :, 1] >= t).float()
+            
+            # Apply the mask to the binary predictions and ground truth
+            pred_binary = pred_binary * mask # (B, BLKS//P)
+            real_binary = real * mask        
+            
+            # Calculate true positives, false positives, and false negatives
+            tp_t = ((pred_binary == 1) & (real_binary == 1)).float().sum()
+            fp_t = ((pred_binary == 1) & (real_binary == 0)).float().sum()
+            fn_t = ((pred_binary == 0) & (real_binary == 1)).float().sum()
+
+            # Calculate precision and recall for the current threshold
+            precision_t = tp_t / (tp_t + fp_t + 1e-8)
+            recall_t = tp_t / (tp_t + fn_t + 1e-8)
+            
+            precisions.append(precision_t)
+            recalls.append(recall_t)
+        
+        # Convert lists to tensors
+        precisions = torch.tensor(precisions)
+        recalls = torch.tensor(recalls)
+        
+        # Sort by recall
+        recall_sorted, indices = torch.sort(recalls)
+        precision_sorted = precisions[indices]
+        
+        # Calculate average precision
+        ap = torch.trapz(precision_sorted, recall_sorted)
+        
+        return precision, recall, f1, ap          
 
     def train(self):
         best_f1 = 0
@@ -173,7 +209,7 @@ class Trainer(object):
                 continue
             
             self.optimizer.step()
-            
+
             if self.use_wandb:
                 log_dict = {
                     "Train/loss": train_loss.item(),
@@ -184,6 +220,9 @@ class Trainer(object):
             if (step_idx + 1) % self.train_n_batch == 0: #* An Epoch
                 avg_val_f1 = 0.0
                 avg_val_loss = 0.0
+                avg_val_prec = 0.0
+                avg_val_recall = 0.0
+                avg_val_mAP = 0.0
                 self.model.eval()
                 with torch.no_grad():
                     for _ in tqdm(range(self.val_n_batch), desc="Validation"):
@@ -191,23 +230,32 @@ class Trainer(object):
                         val_input = val_data['model_input']
                         val_gt = val_data['gt']
                         val_pred = self.model(val_input) # (B, BLKS//P, 2)
-                        prec, recall, f1 = self._evaluation_metrics(val_pred, 
+                        prec, recall, f1, ap = self._evaluation_metrics(val_pred, 
                                                                     val_gt.to(self.device))
                         val_loss = self._loss_func(val_pred, val_gt.to(self.device))
+                        
                         avg_val_f1 += f1
                         avg_val_loss += val_loss
+                        avg_val_prec += prec
+                        avg_val_recall += recall
+                        avg_val_mAP += ap
                         
-                        if self.use_wandb:
-                            log_dict = {
-                                "Val/precision": prec.item(),
-                                "Val/recall": recall.item(),
-                                "Val/f1_score": f1.item(),
-                                "Val/loss": val_loss.item(),
-                            }
-                            wandb.log(log_dict)
 
                     avg_val_f1 /= self.val_ds_len
                     avg_val_loss /= self.val_ds_len
+                    avg_val_prec /= self.val_ds_len
+                    avg_val_recall /= self.val_ds_len
+                    avg_val_mAP /= self.val_ds_len
+                    
+                    if self.use_wandb:
+                        log_dict = {
+                            "Val/avg_val_loss": avg_val_loss.item(),
+                            "Val/avg_val_f1": avg_val_f1.item(),
+                            "Val/avg_val_prec": avg_val_prec.item(),
+                            "Val/avg_val_recall": avg_val_recall.item(),
+                            "Val/avg_val_map": avg_val_mAP.item(),
+                        }
+                        wandb.log(log_dict)
                     
                 MYLOGGER.info("Step: {0}".format(step_idx))
                 MYLOGGER.info("F1-Score: %.4f" % (avg_val_f1))
@@ -215,8 +263,7 @@ class Trainer(object):
                 
                 # Log learning rate
                 if self.use_wandb:
-                    wandb.log({'learning_rate': 
-                                    self.scheduler_optim.optimizer.param_groups[0]['lr']})
+                    wandb.log({'learning_rate': self.scheduler_optim.get_last_lr()[0]})
                 
                 if self.save_best_model and avg_val_f1 > best_f1:
                     best_f1 = avg_val_f1
