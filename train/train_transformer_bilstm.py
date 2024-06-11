@@ -10,7 +10,7 @@ from data.fog_dataset import FoGDataset
 from models.transformer_bilstm import TransformerBiLSTM
 from tqdm import tqdm
 from utils.config import FEATURES_LIST
-from utils.train_util import CustomLRScheduler, cycle_dataloader, save_group_args
+from utils.train_util import cycle_dataloader, save_group_args
 
 
 MYLOGGER = logging.getLogger()
@@ -24,6 +24,7 @@ class Trainer(object):
         self.save_best_model = opt.save_best_model
         self.step = 0
         self.weights_dir = opt.weights_dir
+        self.warmup_steps = opt.lr_scheduler_warmup_steps
         
         if self.use_wandb:
             MYLOGGER.info("Initialize W&B")
@@ -41,14 +42,19 @@ class Trainer(object):
         self.bce_loss = torch.nn.BCELoss(reduction='none')
         
         if opt.optimizer == 'adam':
-            self.optimizer = Adam(self.model.parameters(), lr=opt.learning_rate)
+            self.optimizer = Adam(self.model.parameters(), lr=opt.learning_rate, 
+                                  betas=opt.adam_betas, eps=opt.adam_eps)
         elif opt.optimizer == 'adamw':
-            self.optimizer = AdamW(self.model.parameters(), lr=opt.learning_rate)
+            self.optimizer = AdamW(self.model.parameters(), lr=opt.learning_rate,
+                                   betas=opt.adam_betas, eps=opt.adam_eps)
         assert self.optimizer is not None, "Error: optimizer is not given."
         
-        self.scheduler_optim = CustomLRScheduler(self.optimizer,
-                                                 initial_lr=opt.learning_rate, 
-                                                 warmup_steps=64)
+        self.scheduler_optim = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                                                optimizer=self.optimizer,
+                                                verbose=True,
+                                                factor=opt.lr_scheduler_factor,
+                                                patience=opt.lr_scheduler_patience
+                                )
         
     def _prepare_dataloader(self, opt):
         MYLOGGER.info("Loading training data ...")
@@ -217,8 +223,11 @@ class Trainer(object):
                     self._save_model(step_idx, best=True)
                 else:
                     self._save_model(step_idx, best=False)
-                    
-                self.scheduler_optim.step()
+            
+            # learning rate scheduler ------------------------------------------    
+            if (step_idx + 1) % self.train_n_batch > self.warmup_steps:    
+                self.scheduler_optim.step(avg_val_loss)
+                
    
 
 
@@ -264,9 +273,15 @@ def parse_opt():
     parser.add_argument('--batch_size', type=int, default=64, help='batch size')
     parser.add_argument('--optimizer', type=str, default="adam", 
                                        help="Choice includes [adam, adamw]")
-    parser.add_argument('--learning_rate', type=float, default=2e-4, 
+    parser.add_argument('--learning_rate', type=float, default=26e-5, # 0.00026 
                                            help='generator_learning_rate')
-    
+    parser.add_argument('--adam_betas', default=(0.9, 0.98), help='betas for Adam optimizer')
+    parser.add_argument('--adam_eps', default=1e-9, help='epsilon for Adam optimizer')
+    parser.add_argument('--weight_decay', type=float, default=5e-4, help='for adam optimizer')
+    parser.add_argument('--lr_scheduler_factor', type=float, default=0.4, help='lr scheduler')
+    parser.add_argument('--lr_scheduler_patience', type=int, default=20, help='for adam optimizer')
+    parser.add_argument('--lr_scheduler_warmup_steps', type=int, default=64, help='lr scheduler')
+
     parser.add_argument('--train_num_steps', type=int, default=8000000, 
                                                  help='number of training steps')
     
