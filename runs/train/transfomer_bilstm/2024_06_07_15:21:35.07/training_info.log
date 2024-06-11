@@ -1,7 +1,0 @@
-2024-06-07-15:21:35.139 INFO Running at 2024_06_07_15:21:35.07
-2024-06-07-15:21:35.139 INFO Using device: cuda:7
-2024-06-07-15:21:35.257 INFO Loading training data ...
-2024-06-07-15:21:35.257 INFO -------- Initialize FoG dataset --------
-2024-06-07-15:21:35.259 WARNING data/rectified_data/kaggle_pd_data/all_kaggle_pd_data.p cannot be loaded.
-2024-06-07-15:21:35.260 WARNING data/rectified_data/kaggle_pd_data/train_kaggle_pd_data.p cannot be loaded.
-2024-06-07-15:21:35.407 INFO Generate and store train or val data for data/rectified_data/dataset_fog_release/all_dataset_fog_release.p

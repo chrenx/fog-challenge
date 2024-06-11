@@ -19,15 +19,26 @@ MYLOGGER = logging.getLogger()
 class Trainer(object):
     def __init__(self, model, opt):
         super().__init__()
-        if not opt.disable_wandb:
+        
+        self.use_wandb = not opt.disable_wandb
+        self.save_best_model = opt.save_best_model
+        self.step = 0
+        self.weights_dir = opt.weights_dir
+        
+        if self.use_wandb:
             MYLOGGER.info("Initialize W&B")
             wandb.init(config=opt, project=opt.wandb_pj_name, entity=opt.entity, 
                        name=opt.exp_name, dir=opt.save_dir)
+        
+        #* NEW: self.train_dl, self.train_ds_len, self.val_dl, self.val_ds_len
+        self._prepare_dataloader(opt) 
 
         self.model = model
         self.optimizer = None
         self.cur_step = 0
         self.train_num_steps = opt.train_num_steps
+        self.device = opt.device
+        self.bce_loss = torch.nn.BCELoss(reduction='none')
         
         if opt.optimizer == 'adam':
             self.optimizer = Adam(self.model.parameters(), lr=opt.learning_rate)
@@ -38,48 +49,158 @@ class Trainer(object):
         self.scheduler_optim = CustomLRScheduler(self.optimizer,
                                                  initial_lr=opt.learning_rate, 
                                                  warmup_steps=64)
-            
-        self._prepare_dataloader(opt) # return: self.train_dl, self.val_dl
         
     def _prepare_dataloader(self, opt):
         MYLOGGER.info("Loading training data ...")
         
         self.train_ds = FoGDataset(opt, mode='train')
+        self.train_ds_len = len(self.train_ds)
+        
         self.val_ds = FoGDataset(opt, mode='val')
+        self.val_ds_len = len(self.val_ds)
         
         self.train_dl = cycle_dataloader(data.DataLoader(self.train_ds, 
-                                                         batch_size=opt.batch_size, 
-                                                         shuffle=True, 
-                                                         pin_memory=False, 
-                                                         num_workers=0))
+                                                        batch_size=opt.batch_size, 
+                                                        shuffle=True, 
+                                                        pin_memory=False, 
+                                                        num_workers=0))
+        
         self.val_dl = cycle_dataloader(data.DataLoader(self.val_ds, 
                                                        batch_size=opt.batch_size, 
                                                        shuffle=False, 
                                                        pin_memory=False, 
                                                        num_workers=0))
+        
+    def _loss_func(self, pred, gt):
+        """Compute the Binary Cross-Entropy loss for each class and sum over the class dimension
+
+        Args:
+            pred: (B, BLKS//P, 2)
+            gt: (B, BLKS//P, 3)
+        """
+        loss = self.bce_loss(pred, gt[:,:,:2]) # (B, BLKS//P, 2)
+        mask = (gt[:,:,2] != 1).float() # (B, BLKS//P)
+        mask = mask.unsqueeze(-1).expand(-1, -1, 2) # (B, BLKS//P, 2)
+        loss *= mask
+        return loss.sum() / mask.sum()
+
+    def _evaluation_metrics(self, pred, gt):
+        # Convert the model output probabilities to class predictions
+        pred = torch.argmax(pred, dim=-1)  # (B, BLKS//P)
+
+        # Extract the first two classes from the ground truth
+        real = torch.argmax(gt[:, :, :2], dim=-1)  # (B, BLKS//P)
+
+        # Create a mask to ignore the positions where the ground truth class is 2
+        mask = (gt[:, :, 2] != 2).float()  # (B, BLKS//P)
+
+        # Apply the mask to the predictions and ground truth
+        pred = pred * mask.long() # (B, BLKS//P)
+        real = real * mask.long() # (B, BLKS//P)
+
+        # Calculate true positives, false positives, and false negatives
+        tp = ((pred == 1) & (real == 1)).float().sum()
+        fp = ((pred == 1) & (real == 0)).float().sum()
+        fn = ((pred == 0) & (real == 1)).float().sum()
+
+        # Calculate precision, recall, and F1 score
+        precision = tp / (tp + fp + 1e-8)
+        recall = tp / (tp + fn + 1e-8)
+        f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
+        
+        return precision, recall, f1
+    
+    def _save_model(self, step, best=False):
+        data = {
+            'step': step,
+            'model': self.model.state_dict(),
+        }
+        filename = f"best_model_{step}.pt" if best else f"model_{step}.pt"
+        torch.save(data, os.path.join(self.weights_dir, filename))
 
     def train(self):
-        for idx in tqdm(range(0, self.train_num_steps), desc="Train"):
+        best_f1 = 0
+        for step_idx in tqdm(range(0, self.train_num_steps), desc="Train"):
+            self.model.train()
             self.optimizer.zero_grad()
             
-            # (B,BLKS//P,P*num_feats)
-            data = next(self.train_dl)
-            model_input = data['model_input']
-            gt = data['gt']
-            print("----------------------")
-            print(model_input.dtype)
-            print(gt.dtype)
-            # (B, BLKS//P, 3)
-            pred = self.model(model_input)
-            print(pred.shape)
-            exit(0)
+            # training part ----------------------------------------------------
+            train_data = next(self.train_dl)
+            train_input = train_data['model_input'] # (B, BLKS//P, P*num_feats)
+            train_gt = train_data['gt'] # (B, BLKS//P, 3)
+            train_pred = self.model(train_input) # (B, BLKS//P, 2)
+            train_loss = self._loss_func(train_pred, train_gt.to(self.device))
             
+            train_loss.backward()
             
+            # check gradients
+            parameters = [p for p in self.model.parameters() if p.grad is not None]
+            total_norm = torch.norm(torch.stack([torch.norm(p.grad.detach(), 2.0).\
+                                        to(self.device) for p in parameters]), 2.0)
+
+            if torch.isnan(total_norm):
+                MYLOGGER.warning('NaN gradients. Skipping to next data...')
+                torch.cuda.empty_cache()
+                continue
             
+            self.optimizer.step()
+            
+            if self.use_wandb:
+                log_dict = {
+                    "Train/loss": train_loss.item(),
+                }
+                wandb.log(log_dict)
+                
+            # validation part --------------------------------------------------
+            if (step_idx + 1) % self.train_ds_len == 0: #* An Epoch
+                avg_val_f1 = 0.0
+                avg_val_loss = 0.0
+                self.model.eval()
+                with torch.no_grad():
+                    for _ in tqdm(range(self.val_ds_len), desc="Validation"):
+                        val_data = next(self.val_dl) 
+                        val_input = val_data['model_input']
+                        val_gt = val_data['gt']
+                        val_pred = self.model(val_input) # (B, BLKS//P, 2)
+                        prec, recall, f1 = self._evaluation_metrics(val_pred, 
+                                                                    val_gt.to(self.device))
+                        val_loss = self._loss_func(val_pred, val_gt.to(self.device))
+                        avg_val_f1 += f1
+                        avg_val_loss += val_loss
+                        
+                        if self.use_wandb:
+                            log_dict = {
+                                "Val/precision": prec.item(),
+                                "Val/recall": recall.item(),
+                                "Val/f1_score": f1.item(),
+                                "Val/loss": val_loss.item(),
+                            }
+                            wandb.log(log_dict)
+
+                    avg_val_f1 /= self.val_ds_len
+                    avg_val_loss /= self.val_ds_len
+                    
+                MYLOGGER.info("Step: {0}".format(step_idx))
+                MYLOGGER.info("F1-Score: %.4f" % (avg_val_f1))
+                MYLOGGER.info("Avg Val Loss: %.4f" % (avg_val_loss))
+                
+                # Log learning rate
+                if self.use_wandb:
+                    for param_group in self.optimizer.param_groups:
+                        wandb.log({'learning_rate': param_group['lr']})
+                
+                if self.save_best_model and avg_val_f1 > best_f1:
+                    best_f1 = avg_val_f1
+                    self._save_model(step_idx, best=True)
+                else:
+                    self._save_model(step_idx, best=False)
+                    
+                self.scheduler_optim.step()
 
 
 def run_train(opt):
     model = TransformerBiLSTM(opt)
+    model.to(opt.device)
     trainer = Trainer(model, opt)
     trainer.train()
     torch.cuda.empty_cache()
@@ -107,8 +228,8 @@ def parse_opt():
     parser.add_argument('--device_info', type=str, default='')
     
     # training monitor =========================================================
-    parser.add_argument('--save_and_sample_every', type=int, default=100, 
-                                                        help='save and sample')
+    # parser.add_argument('--save_and_sample_every', type=int, default=50, 
+    #                                                     help='save and sample')
     parser.add_argument('--save_best_model', action='store_true', 
                                                   help='save best model during training')
 
