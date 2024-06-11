@@ -1,4 +1,4 @@
-import argparse, logging, os, random, shutil
+import argparse, glob, logging, os, random, shutil
 from datetime import datetime
 
 import torch, wandb
@@ -30,7 +30,7 @@ class Trainer(object):
             wandb.init(config=opt, project=opt.wandb_pj_name, entity=opt.entity, 
                        name=opt.exp_name, dir=opt.save_dir)
         
-        #* NEW: self.train_dl, self.train_ds_len, self.val_dl, self.val_ds_len
+        #* NEW: self.train_dl, self.train_n_batch, self.val_dl, self.val_n_batch
         self._prepare_dataloader(opt) 
 
         self.model = model
@@ -59,17 +59,42 @@ class Trainer(object):
         self.val_ds = FoGDataset(opt, mode='val')
         self.val_ds_len = len(self.val_ds)
         
-        self.train_dl = cycle_dataloader(data.DataLoader(self.train_ds, 
-                                                        batch_size=opt.batch_size, 
-                                                        shuffle=True, 
-                                                        pin_memory=False, 
-                                                        num_workers=0))
+        dl = data.DataLoader(self.train_ds, 
+                            batch_size=opt.batch_size, 
+                            shuffle=True, 
+                            pin_memory=False, 
+                            num_workers=0)
+        self.train_n_batch = len(dl) 
+        self.train_dl = cycle_dataloader(dl)
         
-        self.val_dl = cycle_dataloader(data.DataLoader(self.val_ds, 
-                                                       batch_size=opt.batch_size, 
-                                                       shuffle=False, 
-                                                       pin_memory=False, 
-                                                       num_workers=0))
+        dl = data.DataLoader(self.val_ds, 
+                            batch_size=opt.batch_size, 
+                            shuffle=False, 
+                            pin_memory=False, 
+                            num_workers=0)
+        self.val_n_batch = len(dl)
+        self.val_dl = cycle_dataloader(dl)
+        
+    def _save_model(self, step, best=False):
+        data = {
+            'step': step,
+            'model': self.model.state_dict(),
+        }
+        # delete previous best* or model*
+        if best: 
+            search_pattern = os.path.join(self.weights_dir, "best*")
+        else:
+            search_pattern = os.path.join(self.weights_dir, "model*")
+        files_to_delete = glob.glob(search_pattern)
+
+        for file_path in files_to_delete:
+            try:
+                os.remove(file_path)
+            except OSError as e:
+                print(f"Error deleting file {file_path}: {e}")
+            
+        filename = f"best_model_{step}.pt" if best else f"model_{step}.pt"
+        torch.save(data, os.path.join(self.weights_dir, filename))      
         
     def _loss_func(self, pred, gt):
         """Compute the Binary Cross-Entropy loss for each class and sum over the class dimension
@@ -85,6 +110,12 @@ class Trainer(object):
         return loss.sum() / mask.sum()
 
     def _evaluation_metrics(self, pred, gt):
+        """Generate precision, recall, and f1 score.
+
+        Args:
+            pred: (B, BLKS//P, 2)   # prob class
+            gt:   (B, BLKS//P, 3)   # the third pos indicates the class
+        """
         # Convert the model output probabilities to class predictions
         pred = torch.argmax(pred, dim=-1)  # (B, BLKS//P)
 
@@ -92,7 +123,7 @@ class Trainer(object):
         real = torch.argmax(gt[:, :, :2], dim=-1)  # (B, BLKS//P)
 
         # Create a mask to ignore the positions where the ground truth class is 2
-        mask = (gt[:, :, 2] != 2).float()  # (B, BLKS//P)
+        mask = (gt[:, :, 2] != 1).float()  # (B, BLKS//P)
 
         # Apply the mask to the predictions and ground truth
         pred = pred * mask.long() # (B, BLKS//P)
@@ -108,15 +139,7 @@ class Trainer(object):
         recall = tp / (tp + fn + 1e-8)
         f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
         
-        return precision, recall, f1
-    
-    def _save_model(self, step, best=False):
-        data = {
-            'step': step,
-            'model': self.model.state_dict(),
-        }
-        filename = f"best_model_{step}.pt" if best else f"model_{step}.pt"
-        torch.save(data, os.path.join(self.weights_dir, filename))
+        return precision, recall, f1          
 
     def train(self):
         best_f1 = 0
@@ -152,12 +175,12 @@ class Trainer(object):
                 wandb.log(log_dict)
                 
             # validation part --------------------------------------------------
-            if (step_idx + 1) % self.train_ds_len == 0: #* An Epoch
+            if (step_idx + 1) % self.train_n_batch == 0: #* An Epoch
                 avg_val_f1 = 0.0
                 avg_val_loss = 0.0
                 self.model.eval()
                 with torch.no_grad():
-                    for _ in tqdm(range(self.val_ds_len), desc="Validation"):
+                    for _ in tqdm(range(self.val_n_batch), desc="Validation"):
                         val_data = next(self.val_dl) 
                         val_input = val_data['model_input']
                         val_gt = val_data['gt']
@@ -186,8 +209,8 @@ class Trainer(object):
                 
                 # Log learning rate
                 if self.use_wandb:
-                    for param_group in self.optimizer.param_groups:
-                        wandb.log({'learning_rate': param_group['lr']})
+                    wandb.log({'learning_rate': 
+                                    self.scheduler_optim.optimizer.param_groups[0]['lr']})
                 
                 if self.save_best_model and avg_val_f1 > best_f1:
                     best_f1 = avg_val_f1
@@ -196,6 +219,7 @@ class Trainer(object):
                     self._save_model(step_idx, best=False)
                     
                 self.scheduler_optim.step()
+   
 
 
 def run_train(opt):
@@ -212,6 +236,7 @@ def parse_opt():
     parser.add_argument('--project', default='runs/train', help='project/name')
     parser.add_argument('--exp_name', default='transfomer_bilstm', 
                                             help='save to project/name')
+    parser.add_argument('--cur_time', default=None, help='Time running this program')
 
     # wandb setup ==============================================================
     parser.add_argument('--disable_wandb', action='store_true')
@@ -222,14 +247,14 @@ def parse_opt():
     # data path
     parser.add_argument('--root_dpath', default='data/rectified_data', 
                                         help='directory that contains different processed datasets')
+    parser.add_argument('--data_name', type=str, nargs='+', default=None, 
+                                       help='provided data name, train first, val second')
     
     # GPU ======================================================================
     parser.add_argument('--device', default='0', help='assign gpu')
     parser.add_argument('--device_info', type=str, default='')
     
     # training monitor =========================================================
-    # parser.add_argument('--save_and_sample_every', type=int, default=50, 
-    #                                                     help='save and sample')
     parser.add_argument('--save_best_model', action='store_true', 
                                                   help='save best model during training')
 
@@ -242,7 +267,7 @@ def parse_opt():
     parser.add_argument('--learning_rate', type=float, default=2e-4, 
                                            help='generator_learning_rate')
     
-    parser.add_argument('--train_num_steps', type=int, default=800000, 
+    parser.add_argument('--train_num_steps', type=int, default=8000000, 
                                                  help='number of training steps')
     
     parser.add_argument('--block_size', type=int, default=15552)
@@ -275,6 +300,7 @@ if __name__ == "__main__":
     cur_time = datetime.now()
     cur_time = '{:%Y_%m_%d_%H:%M:%S}.{:02.0f}'.format(cur_time, cur_time.microsecond / 10000.0)
     opt.save_dir = os.path.join(opt.project, opt.exp_name, cur_time)
+    opt.cur_time = cur_time
     if opt.device != 'cpu':
         opt.device_info = torch.cuda.get_device_name(int(opt.device)) 
         opt.device = f"cuda:{opt.device}"
