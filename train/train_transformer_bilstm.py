@@ -3,6 +3,7 @@ from datetime import datetime
 
 import torch, wandb
 import numpy as np
+from sklearn.metrics import precision_recall_curve, auc
 from torch.optim import Adam, AdamW
 from torch.utils import data
 
@@ -22,7 +23,7 @@ class Trainer(object):
         
         self.use_wandb = not opt.disable_wandb
         self.save_best_model = opt.save_best_model
-        self.step = 0
+        self.save_every_n_epoch = opt.save_every_n_epoch
         self.weights_dir = opt.weights_dir
         self.warmup_steps = opt.lr_scheduler_warmup_steps
         
@@ -43,25 +44,30 @@ class Trainer(object):
         
         if opt.optimizer == 'adam':
             self.optimizer = Adam(self.model.parameters(), lr=opt.learning_rate, 
-                                  betas=opt.adam_betas, eps=opt.adam_eps)
+                                  betas=opt.adam_betas, eps=opt.adam_eps, 
+                                  weight_decay=opt.weight_decay)
         elif opt.optimizer == 'adamw':
             self.optimizer = AdamW(self.model.parameters(), lr=opt.learning_rate,
-                                   betas=opt.adam_betas, eps=opt.adam_eps)
+                                   betas=opt.adam_betas, eps=opt.adam_eps, 
+                                   weight_decay=opt.weight_decay)
         assert self.optimizer is not None, "Error: optimizer is not given."
         
         self.scheduler_optim = torch.optim.lr_scheduler.ReduceLROnPlateau(
                                                 optimizer=self.optimizer,
                                                 factor=opt.lr_scheduler_factor,
                                                 patience=opt.lr_scheduler_patience)
+
+        print("---- train n batch: ", self.train_n_batch)
+        print("---- val n batch: ", self.val_n_batch)
+        MYLOGGER.info(f"---- train n batch: {self.train_n_batch}")
+        MYLOGGER.info(f"---- val n batch: {self.val_n_batch}")
         
     def _prepare_dataloader(self, opt):
         MYLOGGER.info("Loading training data ...")
         
         self.train_ds = FoGDataset(opt, mode='train')
-        self.train_ds_len = len(self.train_ds)
         
         self.val_ds = FoGDataset(opt, mode='val')
-        self.val_ds_len = len(self.val_ds)
         
         dl = data.DataLoader(self.train_ds, 
                             batch_size=opt.batch_size, 
@@ -79,14 +85,15 @@ class Trainer(object):
         self.val_n_batch = len(dl)
         self.val_dl = cycle_dataloader(dl)
         
-    def _save_model(self, step, best=False):
+    def _save_model(self, step, base, best=False):
+        
         data = {
             'step': step,
             'model': self.model.state_dict(),
         }
         # delete previous best* or model*
         if best: 
-            search_pattern = os.path.join(self.weights_dir, "best*")
+            search_pattern = os.path.join(self.weights_dir, f"best_model_{base}*")
         else:
             search_pattern = os.path.join(self.weights_dir, "model*")
         files_to_delete = glob.glob(search_pattern)
@@ -97,7 +104,7 @@ class Trainer(object):
             except OSError as e:
                 print(f"Error deleting file {file_path}: {e}")
             
-        filename = f"best_model_{step}.pt" if best else f"model_{step}.pt"
+        filename = f"best_model_{base}_{step}.pt" if best else f"model_{base}_{step}.pt"
         torch.save(data, os.path.join(self.weights_dir, filename))      
         
     def _loss_func(self, pred, gt):
@@ -127,7 +134,7 @@ class Trainer(object):
         real = torch.argmax(gt[:, :, :2], dim=-1)  # (B, BLKS//P)
 
         # Create a mask to ignore the positions where the ground truth class is 2
-        mask = (gt[:, :, 2] != 1).float()  # (B, BLKS//P)
+        mask = (gt[:, :, 2] != 1)  # (B, BLKS//P)
 
         # Apply the mask to the predictions and ground truth
         pred = pred * mask.long() # (B, BLKS//P)
@@ -185,6 +192,8 @@ class Trainer(object):
 
     def train(self):
         best_f1 = 0
+        best_loss = float('inf')
+        best_mAP = 0
         for step_idx in tqdm(range(0, self.train_num_steps), desc="Train"):
             self.model.train()
             self.optimizer.zero_grad()
@@ -214,21 +223,26 @@ class Trainer(object):
                 log_dict = {
                     "Train/loss": train_loss.item(),
                 }
-                wandb.log(log_dict)
+                wandb.log(log_dict, step=step_idx)
                 
             # validation part --------------------------------------------------
-            if (step_idx + 1) % self.train_n_batch == 0: #* An Epoch
+            cur_epoch = (step_idx + 1) // self.train_n_batch
+            if True:
+            # if cur_epoch % self.save_every_n_epoch == 0:
                 avg_val_f1 = 0.0
                 avg_val_loss = 0.0
                 avg_val_prec = 0.0
                 avg_val_recall = 0.0
                 avg_val_mAP = 0.0
+                all_recalls, all_precisions = [], []
+                all_val_gt, all_val_pred = [], []
+                
                 self.model.eval()
                 with torch.no_grad():
-                    for _ in tqdm(range(self.val_n_batch), desc="Validation"):
+                    for _ in range(self.val_n_batch):
                         val_data = next(self.val_dl) 
                         val_input = val_data['model_input']
-                        val_gt = val_data['gt']
+                        val_gt = val_data['gt'] # (B, BLKS//P, 3)
                         val_pred = self.model(val_input) # (B, BLKS//P, 2)
                         prec, recall, f1, ap = self._evaluation_metrics(val_pred, 
                                                                     val_gt.to(self.device))
@@ -240,12 +254,30 @@ class Trainer(object):
                         avg_val_recall += recall
                         avg_val_mAP += ap
                         
-
-                    avg_val_f1 /= self.val_ds_len
-                    avg_val_loss /= self.val_ds_len
-                    avg_val_prec /= self.val_ds_len
-                    avg_val_recall /= self.val_ds_len
-                    avg_val_mAP /= self.val_ds_len
+                        all_recalls.append(recall.item())
+                        all_precisions.append(prec.item())
+                        
+                        tmp_gt = val_gt.reshape(-1, 3)
+                        mask = tmp_gt[:,2] != 1
+                        tmp_gt = tmp_gt[mask] # (B*BLKS//P',3)
+                        tmp_pred = val_pred.reshape(-1, 2)[mask] # (B*BLKS//P',2)
+                        all_val_gt.append(tmp_gt.cpu().numpy()) # (B*BLKS//P',3)
+                        all_val_pred.append(tmp_pred.cpu().numpy()) # (B*BLKS//P',2)
+                        
+                    avg_val_f1 /= self.val_n_batch
+                    avg_val_loss /= self.val_n_batch
+                    avg_val_prec /= self.val_n_batch
+                    avg_val_recall /= self.val_n_batch
+                    avg_val_mAP /= self.val_n_batch
+                    
+                    pr_auc = auc(all_recalls, all_precisions)
+                    print(f'Precision-Recall AUC: {pr_auc:.4f}')
+                    
+                    all_val_gt = np.concatenate(all_val_gt, axis=0)  # (B*BLKS//P',3)
+                    all_val_pred = np.concatenate(all_val_pred, axis=0)  # (B*BLKS//P',2)
+                    print(all_val_gt.shape)
+                    print(all_val_pred.shape)
+                    print('unique: ', np.unique(all_val_gt[:, 1]))
                     
                     if self.use_wandb:
                         log_dict = {
@@ -255,27 +287,35 @@ class Trainer(object):
                             "Val/avg_val_recall": avg_val_recall.item(),
                             "Val/avg_val_map": avg_val_mAP.item(),
                         }
-                        wandb.log(log_dict)
-                    
-                MYLOGGER.info("Step: {0}".format(step_idx))
-                MYLOGGER.info("F1-Score: %.4f" % (avg_val_f1))
-                MYLOGGER.info("Avg Val Loss: %.4f" % (avg_val_loss))
+                        wandb.log(log_dict, step=step_idx)
+                        wandb.log({'precision_recall_curve': 
+                                        wandb.plot.pr_curve(y_true=all_val_gt[:, 1].astype(int),
+                                                            y_probas=all_val_pred,
+                                                            labels=['normal', 'freeze'])})
+
                 
                 # Log learning rate
                 if self.use_wandb:
-                    wandb.log({'learning_rate': self.scheduler_optim.get_last_lr()[0]})
+                    wandb.log({'learning_rate': self.scheduler_optim.get_last_lr()[0]}, 
+                              step=step_idx)
                 
                 if self.save_best_model and avg_val_f1 > best_f1:
                     best_f1 = avg_val_f1
-                    self._save_model(step_idx, best=True)
-                else:
-                    self._save_model(step_idx, best=False)
+                    self._save_model(step_idx, base='f1', best=True)
+                    
+                if self.save_best_model and avg_val_loss < best_loss:
+                    best_loss = avg_val_loss
+                    self._save_model(step_idx, base='loss', best=True)
+                    
+                if self.save_best_model and avg_val_mAP > best_mAP:
+                    best_mAP = avg_val_mAP
+                    self._save_model(step_idx, base='mAP', best=True)
+                    
+                self._save_model(step_idx, base='regular', best=False)
             
-            # learning rate scheduler ------------------------------------------    
-            if (step_idx + 1) % self.train_n_batch > self.warmup_steps:    
-                self.scheduler_optim.step(avg_val_loss)
-                
-   
+                # learning rate scheduler -------------------------------------- 
+                if cur_epoch > self.warmup_steps:    
+                    self.scheduler_optim.step(avg_val_loss)
 
 
 def run_train(opt):
@@ -293,6 +333,7 @@ def parse_opt():
     parser.add_argument('--exp_name', default='transfomer_bilstm', 
                                             help='save to project/name')
     parser.add_argument('--cur_time', default=None, help='Time running this program')
+    parser.add_argument('--description', type=str, default=None, help='important notes')
 
     # wandb setup ==============================================================
     parser.add_argument('--disable_wandb', action='store_true')
@@ -313,6 +354,8 @@ def parse_opt():
     # training monitor =========================================================
     parser.add_argument('--save_best_model', action='store_true', 
                                                   help='save best model during training')
+    parser.add_argument('--save_every_n_epoch', type=int, default=50, 
+                                                  help='save model during training')
 
     # hyperparameters ==========================================================
     parser.add_argument('--seed', type=int, default=42, 
@@ -324,8 +367,8 @@ def parse_opt():
                                            help='generator_learning_rate')
     parser.add_argument('--adam_betas', default=(0.9, 0.98), help='betas for Adam optimizer')
     parser.add_argument('--adam_eps', default=1e-9, help='epsilon for Adam optimizer')
-    parser.add_argument('--weight_decay', type=float, default=5e-4, help='for adam optimizer')
-    parser.add_argument('--lr_scheduler_factor', type=float, default=0.4, help='lr scheduler')
+    parser.add_argument('--weight_decay', type=float, default=0, help='for adam optimizer')
+    parser.add_argument('--lr_scheduler_factor', type=float, default=0.1, help='lr scheduler')
     parser.add_argument('--lr_scheduler_patience', type=int, default=20, help='for adam optimizer')
     parser.add_argument('--lr_scheduler_warmup_steps', type=int, default=64, help='lr scheduler')
 
@@ -361,13 +404,9 @@ if __name__ == "__main__":
     opt = parse_opt()
     cur_time = datetime.now()
     cur_time = '{:%Y_%m_%d_%H:%M:%S}.{:02.0f}'.format(cur_time, cur_time.microsecond / 10000.0)
+    
     opt.save_dir = os.path.join(opt.project, opt.exp_name, cur_time)
     opt.cur_time = cur_time
-    if opt.device != 'cpu':
-        opt.device_info = torch.cuda.get_device_name(int(opt.device)) 
-        opt.device = f"cuda:{opt.device}"
-    else:
-        print("!!!!!!!! Running on CPU.")
 
     random.seed(opt.seed)
     np.random.seed(opt.seed)
@@ -387,7 +426,19 @@ if __name__ == "__main__":
     opt.weights_dir = os.path.join(opt.save_dir, 'weights')
     os.makedirs(opt.weights_dir, exist_ok=True)
     
-    logging.basicConfig(filename=os.path.join(opt.save_dir,"training_info.log"),
+    training_info_log_path = os.path.join(opt.save_dir,"training_info.log")
+    # redirect all printing to a file
+    if not opt.disable_wandb:
+        import sys
+        sys.stdout = open(training_info_log_path, "w")
+    
+    if opt.device != 'cpu':
+        opt.device_info = torch.cuda.get_device_name(int(opt.device)) 
+        opt.device = f"cuda:{opt.device}"
+    else:
+        print("!!!!!!!! Running on CPU.")
+    
+    logging.basicConfig(filename=os.path.join(training_info_log_path),
                         filemode='a',
                         format='%(asctime)s.%(msecs)02d %(levelname)s %(message)s',
                         datefmt='%Y-%m-%d-%H:%M:%S',
@@ -395,6 +446,9 @@ if __name__ == "__main__":
     MYLOGGER.setLevel(logging.INFO)
     MYLOGGER.info(f"Running at {cur_time}")
     MYLOGGER.info(f"Using device: {opt.device}")
+    
+    if opt.description is not None:
+        MYLOGGER.info(f"-------- Job Description: --------\n{opt.description}")
     
     save_group_args(opt)
 
