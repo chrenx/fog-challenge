@@ -12,7 +12,7 @@ import pandas as pd
 from scipy.constants import physical_constants
 from tqdm import tqdm
 
-from utils import config
+from utils import config_v1
 
 
 def sample_normalize(sample):
@@ -39,7 +39,7 @@ def make_single_data(dpath, dataset_name):
         if not csv_file.startswith('rectified') or not csv_file.endswith('.csv'):
             continue
         series = pd.read_csv(os.path.join(dpath, csv_file))
-        series = series[config.FEATURES_LIST]
+        series = series[config_v1.FEATURES_LIST]
         
         filename = csv_file[:-4]
         
@@ -47,11 +47,11 @@ def make_single_data(dpath, dataset_name):
         gt_csv = pd.read_csv(os.path.join(dpath, f"gt_{dataset_name}.csv"))
         gt_csv = gt_csv.fillna(2)
         csv_id = csv_file.split('_')[1]
-        actual_data_len = len(series[config.FEATURES_LIST[0]].values)
+        actual_data_len = len(series[config_v1.FEATURES_LIST[0]].values)
         gt_data = torch.tensor(gt_csv[f"GroundTruth_Trial{csv_id}"].values[:actual_data_len], 
                                dtype=torch.int8)
         single_csv[filename]['gt'] = gt_data
-        for feat in config.FEATURES_LIST:
+        for feat in config_v1.FEATURES_LIST:
             single_csv[filename][feat] = sample_normalize(series[feat].values)
         joblib.dump(single_csv, open(os.path.join(dpath, f"all_{dataset_name}.p"), 'wb'))
 
@@ -137,7 +137,7 @@ def process_dataset_fog_release(dpath=None):
         # write to the training data     
         csv_file_path = os.path.join(csv_path, f"rectified_{csv_count}_dataset_fog_release.csv")           
         with open(csv_file_path, 'w') as rectified_csv:
-            writer = csv.DictWriter(rectified_csv, fieldnames=config.PHASE2_DATA_HEAD)
+            writer = csv.DictWriter(rectified_csv, fieldnames=config_v1.PHASE2_DATA_HEAD)
             writer.writeheader()
             writer.writerows(merged_lines)
         
@@ -167,7 +167,7 @@ def process_kaggle_pd_data():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--datasets', type=str, nargs='+', default=config.ALL_DATASETS, 
+    parser.add_argument('--datasets', type=str, nargs='+', default=config_v1.ALL_DATASETS, 
                                       help='Which datasets to process. By default process all.')
     opt = parser.parse_known_args()
     opt = opt[0]

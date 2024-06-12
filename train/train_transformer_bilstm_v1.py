@@ -7,11 +7,11 @@ from sklearn.metrics import precision_recall_curve, auc
 from torch.optim import Adam, AdamW
 from torch.utils import data
 
-from data.fog_dataset import FoGDataset
-from models.transformer_bilstm import TransformerBiLSTM
+from data.fog_dataset_v1 import FoGDataset
+from models.transformer_bilstm_v1 import TransformerBiLSTM
 from tqdm import tqdm
-from utils.config import FEATURES_LIST
-from utils.train_util import cycle_dataloader, save_group_args
+from utils.config_v1 import FEATURES_LIST
+from utils.train_util_v1 import cycle_dataloader, save_group_args
 
 
 MYLOGGER = logging.getLogger()
@@ -23,7 +23,6 @@ class Trainer(object):
         
         self.use_wandb = not opt.disable_wandb
         self.save_best_model = opt.save_best_model
-        self.save_every_n_epoch = opt.save_every_n_epoch
         self.weights_dir = opt.weights_dir
         self.warmup_steps = opt.lr_scheduler_warmup_steps
         
@@ -57,8 +56,6 @@ class Trainer(object):
                                                 factor=opt.lr_scheduler_factor,
                                                 patience=opt.lr_scheduler_patience)
 
-        print("---- train n batch: ", self.train_n_batch)
-        print("---- val n batch: ", self.val_n_batch)
         MYLOGGER.info(f"---- train n batch: {self.train_n_batch}")
         MYLOGGER.info(f"---- val n batch: {self.val_n_batch}")
         
@@ -102,7 +99,7 @@ class Trainer(object):
             try:
                 os.remove(file_path)
             except OSError as e:
-                print(f"Error deleting file {file_path}: {e}")
+                MYLOGGER.error(f"Error deleting file {file_path}: {e}")
             
         filename = f"best_model_{base}_{step}.pt" if best else f"model_{base}_{step}.pt"
         torch.save(data, os.path.join(self.weights_dir, filename))      
@@ -223,12 +220,11 @@ class Trainer(object):
                 log_dict = {
                     "Train/loss": train_loss.item(),
                 }
-                wandb.log(log_dict, step=step_idx)
+                wandb.log(log_dict, step=step_idx+1)
                 
             # validation part --------------------------------------------------
             cur_epoch = (step_idx + 1) // self.train_n_batch
-            if True:
-            # if cur_epoch % self.save_every_n_epoch == 0:
+            if (step_idx + 1) % self.train_n_batch == 0: #* an epoch
                 avg_val_f1 = 0.0
                 avg_val_loss = 0.0
                 avg_val_prec = 0.0
@@ -271,13 +267,9 @@ class Trainer(object):
                     avg_val_mAP /= self.val_n_batch
                     
                     pr_auc = auc(all_recalls, all_precisions)
-                    print(f'Precision-Recall AUC: {pr_auc:.4f}')
                     
                     all_val_gt = np.concatenate(all_val_gt, axis=0)  # (B*BLKS//P',3)
                     all_val_pred = np.concatenate(all_val_pred, axis=0)  # (B*BLKS//P',2)
-                    print(all_val_gt.shape)
-                    print(all_val_pred.shape)
-                    print('unique: ', np.unique(all_val_gt[:, 1]))
                     
                     if self.use_wandb:
                         log_dict = {
@@ -286,18 +278,20 @@ class Trainer(object):
                             "Val/avg_val_prec": avg_val_prec.item(),
                             "Val/avg_val_recall": avg_val_recall.item(),
                             "Val/avg_val_map": avg_val_mAP.item(),
+                            "Val/pr_auc": pr_auc,
                         }
-                        wandb.log(log_dict, step=step_idx)
+                        wandb.log(log_dict, step=step_idx+1)
                         wandb.log({'precision_recall_curve': 
                                         wandb.plot.pr_curve(y_true=all_val_gt[:, 1].astype(int),
                                                             y_probas=all_val_pred,
-                                                            labels=['normal', 'freeze'])})
+                                                            labels=['normal', 'freeze'])},
+                                  step=step_idx+1)
 
                 
                 # Log learning rate
                 if self.use_wandb:
                     wandb.log({'learning_rate': self.scheduler_optim.get_last_lr()[0]}, 
-                              step=step_idx)
+                              step=step_idx+1)
                 
                 if self.save_best_model and avg_val_f1 > best_f1:
                     best_f1 = avg_val_f1
@@ -354,8 +348,8 @@ def parse_opt():
     # training monitor =========================================================
     parser.add_argument('--save_best_model', action='store_true', 
                                                   help='save best model during training')
-    parser.add_argument('--save_every_n_epoch', type=int, default=50, 
-                                                  help='save model during training')
+    # parser.add_argument('--save_every_n_epoch', type=int, default=50, 
+    #                                               help='save model during training')
 
     # hyperparameters ==========================================================
     parser.add_argument('--seed', type=int, default=42, 
@@ -372,7 +366,7 @@ def parse_opt():
     parser.add_argument('--lr_scheduler_patience', type=int, default=20, help='for adam optimizer')
     parser.add_argument('--lr_scheduler_warmup_steps', type=int, default=64, help='lr scheduler')
 
-    parser.add_argument('--train_num_steps', type=int, default=8000000, 
+    parser.add_argument('--train_num_steps', type=int, default=20000, 
                                                  help='number of training steps')
     
     parser.add_argument('--block_size', type=int, default=15552)
@@ -416,7 +410,10 @@ if __name__ == "__main__":
     os.makedirs(opt.save_dir, exist_ok=True)
 
     # Save some important code
-    source_files = ['train/train_transformer_bilstm.py']
+    source_files = ['train/train_transformer_bilstm_v1.py', 
+                    'utils/train_util_v1.py', 'utils/config_v1.py',
+                    'data/fog_dataset_v1.py',
+                    'models/transformer_bilstm_v1.py']
     codes_dest = os.path.join(opt.save_dir, 'codes')
     os.makedirs(codes_dest)
     for file_dir in source_files:
@@ -431,18 +428,20 @@ if __name__ == "__main__":
     if not opt.disable_wandb:
         import sys
         sys.stdout = open(training_info_log_path, "w")
+        logging.basicConfig(filename=os.path.join(training_info_log_path),
+                        filemode='a',
+                        format='%(asctime)s.%(msecs)02d %(levelname)s %(message)s',
+                        datefmt='%Y-%m-%d-%H:%M:%S',
+                        level=os.environ.get("LOGLEVEL", "INFO"))
+    else:
+        logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
     
     if opt.device != 'cpu':
         opt.device_info = torch.cuda.get_device_name(int(opt.device)) 
         opt.device = f"cuda:{opt.device}"
     else:
-        print("!!!!!!!! Running on CPU.")
-    
-    logging.basicConfig(filename=os.path.join(training_info_log_path),
-                        filemode='a',
-                        format='%(asctime)s.%(msecs)02d %(levelname)s %(message)s',
-                        datefmt='%Y-%m-%d-%H:%M:%S',
-                        level=os.environ.get("LOGLEVEL", "INFO"))
+        MYLOGGER.warning("!!!!!!!! Running on CPU.")
+
     MYLOGGER.setLevel(logging.INFO)
     MYLOGGER.info(f"Running at {cur_time}")
     MYLOGGER.info(f"Using device: {opt.device}")
