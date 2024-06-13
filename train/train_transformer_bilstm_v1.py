@@ -25,6 +25,7 @@ class Trainer(object):
         self.save_best_model = opt.save_best_model
         self.weights_dir = opt.weights_dir
         self.warmup_steps = opt.lr_scheduler_warmup_steps
+        self.penalty_cost = opt.penalty_cost
         
         if self.use_wandb:
             MYLOGGER.info("Initialize W&B")
@@ -114,7 +115,12 @@ class Trainer(object):
         loss = self.bce_loss(pred, gt[:,:,:2]) # (B, BLKS//P, 2)
         mask = (gt[:,:,2] != 1).float() # (B, BLKS//P)
         mask = mask.unsqueeze(-1).expand(-1, -1, 2) # (B, BLKS//P, 2)
-        loss *= mask
+        
+        # Additional cost for misclassifying the minority class
+        minority_mask = (gt[:,:,1] == 1).float() # (B, BLKS//P)
+        minority_mask = minority_mask.unsqueeze(-1).expand(-1, -1, 2) # (B, BLKS//P, 2)
+        loss = loss * (mask + self.penalty_cost * minority_mask)
+   
         return loss.sum() / mask.sum()
 
     def _evaluation_metrics(self, output, gt):
@@ -277,7 +283,7 @@ class Trainer(object):
                             "Val/avg_val_f1": avg_val_f1.item(),
                             "Val/avg_val_prec": avg_val_prec.item(),
                             "Val/avg_val_recall": avg_val_recall.item(),
-                            "Val/avg_val_map": avg_val_mAP.item(),
+                            "Val/avg_val_mAP": avg_val_mAP.item(),
                             "Val/pr_auc": pr_auc,
                         }
                         wandb.log(log_dict, step=step_idx+1)
@@ -286,6 +292,12 @@ class Trainer(object):
                                                             y_probas=all_val_pred,
                                                             labels=['normal', 'freeze'])},
                                   step=step_idx+1)
+                    MYLOGGER.info(f"avg_val_loss: {avg_val_loss.item():4f}")
+                    MYLOGGER.info(f"avg_val_f1: {avg_val_f1.item():4f}")
+                    MYLOGGER.info(f"avg_val_prec: {avg_val_prec.item():4f}")
+                    MYLOGGER.info(f"avg_val_recall: {avg_val_recall.item():4f}")
+                    MYLOGGER.info(f"avg_val_mAP: {avg_val_mAP.item():4f}")
+                    MYLOGGER.info(f"pr_auc: {pr_auc.item():4f}")
 
                 
                 # Log learning rate
@@ -295,14 +307,17 @@ class Trainer(object):
                 
                 if self.save_best_model and avg_val_f1 > best_f1:
                     best_f1 = avg_val_f1
+                    wandb.run.summary['best_f1'] = avg_val_f1.item()
                     self._save_model(step_idx, base='f1', best=True)
                     
                 if self.save_best_model and avg_val_loss < best_loss:
                     best_loss = avg_val_loss
+                    wandb.run.summary['best_loss'] = avg_val_loss.item()
                     self._save_model(step_idx, base='loss', best=True)
                     
                 if self.save_best_model and avg_val_mAP > best_mAP:
                     best_mAP = avg_val_mAP
+                    wandb.run.summary['best_mAP'] = avg_val_mAP.item()
                     self._save_model(step_idx, base='mAP', best=True)
                     
                 self._save_model(step_idx, base='regular', best=False)
@@ -368,12 +383,17 @@ def parse_opt():
 
     parser.add_argument('--train_num_steps', type=int, default=20000, 
                                                  help='number of training steps')
+    parser.add_argument('--penalty_cost', type=float, default=0, 
+                                          help='penalize when misclassifying the minor class(fog)')
+    
     
     parser.add_argument('--block_size', type=int, default=15552)
     parser.add_argument('--block_stride', type=int, default=15552 // 16) # 972
     parser.add_argument('--patch_size', type=int, default=18)
 
-    parser.add_argument('--fog_model_input_dim', type=int, default=18*len(FEATURES_LIST))
+    #! parser.add_argument('--fog_model_input_dim', type=int, default=18*len(FEATURES_LIST))
+    parser.add_argument('--fog_model_input_dim', type=int, default=18*9)
+
     parser.add_argument('--fog_model_dim', type=int, default=320)
     parser.add_argument('--fog_model_num_heads', type=int, default=8)
     parser.add_argument('--fog_model_num_encoder_layers', type=int, default=5)

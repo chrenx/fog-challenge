@@ -164,6 +164,44 @@ def process_dataset_fog_release(dpath=None):
 
 def process_kaggle_pd_data():
     print('---- Processing kaggle_pd_data')
+    rectified_train_path = 'data/rectified_data/kaggle_pd_data/train'
+    
+    #* Process notype ----------------------------------------------------------
+    notype_dpath = 'data/kaggle_pd_data/train/notype'
+    csv_files_list = sorted(os.listdir(notype_dpath))
+    csv_count = 0
+    for filename in tqdm(csv_files_list):
+        if not filename.endswith('.csv'):
+            continue
+        print(filename)
+        
+        csv_count += 1
+        series = pd.read_csv(os.path.join(notype_dpath, filename))
+        first_valid_idx = series[(series['Valid'] == True) & (series['Task'] == True)].index[0]
+        # Find the last row where both Valid and Task are True
+        last_valid_idx = series[(series['Valid'] == True) & (series['Task'] == True)].index[-1]
+        # Remove the previous rows
+        df_filtered = series.iloc[first_valid_idx:last_valid_idx+1]
+        df_filtered.rename(columns={
+            'AccV': 'LowerBack_Acc_Z',
+            'AccML': 'LowerBack_Acc_Y',
+            'AccAP': 'LowerBack_Acc_X',
+        }, inplace=True)
+        
+        gt_df = pd.DataFrame()
+
+        # Populate the new DataFrame
+        gt_df[f'GroundTruth_Trial{csv_count}'] = df_filtered.apply(
+            lambda row: row['Event'] if row['Valid'] and row['Task'] else 2,
+            axis=1
+        )
+        print(len(series['AccAP']))
+        print(len(df_filtered['LowerBack_Acc_X']))
+        print(df_filtered.head())
+        print(len(gt_df[f'GroundTruth_Trial{csv_count}']))
+        exit(0)
+        
+    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -182,7 +220,7 @@ if __name__ == "__main__":
                 #                 dataset_name="dataset_fog_release")
                 pass
             case 'kaggle_pd_data':
-                # process_kaggle_pd_data()
+                process_kaggle_pd_data()
                 pass
             case _:
                 print(f"**** {dataset} dataset doesn\'t exist")

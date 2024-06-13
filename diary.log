@@ -1,6 +1,12 @@
+可调整的东西:
+    1. 尝试不要overlap windows
+    2. kaggle data
+
+
 
 single_data_dict(all_dataset_fog_release.p): {     # already normalized
     "rectified_1_dataset_fog_release": {
+        'event': 
         'gt': (N,)     torch.int8    # 0 = no freeze, 1 = freeze, 2 = out of experiment
         'L_Ankle_Acc_X': (N,)
         'L_Ankle_Acc_Y': (N,)
