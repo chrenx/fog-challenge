@@ -417,8 +417,9 @@ if __name__ == "__main__":
     
     opt = parse_opt()
     cur_time = datetime.now()
-    cur_time = '{:%Y_%m_%d_%H:%M:%S}.{:02.0f}'.format(cur_time, cur_time.microsecond / 10000.0)
-    
+    cur_time = '{:%Y_%m_%d_%H:%M:%S}.{:02.0f}'.format(cur_time, 
+                                                      cur_time.microsecond / 10000.0)
+
     opt.save_dir = os.path.join(opt.project, opt.exp_name, cur_time)
     opt.cur_time = cur_time
 

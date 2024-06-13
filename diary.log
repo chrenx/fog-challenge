@@ -21,6 +21,16 @@ single_data_dict(all_dataset_fog_release.p): {     # already normalized
     ...
 }
 
+single_data_dict(all_kaggle_pd_data.p): {     # already normalized
+    "rectified_1_kaggle_pd_data": {
+        'gt': (N,)     torch.int8    # 0 = no freeze, 1 = freeze, 2 = out of experiment
+        'LowerBack_Acc_X': (N,) 
+        'LowerBack_Acc_Y': (N,) 
+        'LowerBack_Acc_Z': (N,)
+    },
+    ...
+}
+
 block_data_dict(all train_dataset_name.p): {
     0: {
         'series_name': series_name, # rectified_1_dataset_fog_release

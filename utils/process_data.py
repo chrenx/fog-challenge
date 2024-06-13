@@ -164,19 +164,106 @@ def process_dataset_fog_release(dpath=None):
 
 def process_kaggle_pd_data():
     print('---- Processing kaggle_pd_data')
-    rectified_train_path = 'data/rectified_data/kaggle_pd_data/train'
+    rectified_train_path = 'data/rectified_data/kaggle_pd_data'
     
     #* Process notype ----------------------------------------------------------
-    notype_dpath = 'data/kaggle_pd_data/train/notype'
-    csv_files_list = sorted(os.listdir(notype_dpath))
-    csv_count = 0
+    # notype_dpath = 'data/kaggle_pd_data/train/notype'
+    # csv_files_list = sorted(os.listdir(notype_dpath))
+    # csv_count = 0
+    # gt_df = pd.DataFrame()
+    # for filename in tqdm(csv_files_list):
+    #     if not filename.endswith('.csv'):
+    #         continue
+        
+    #     csv_count += 1
+    #     series = pd.read_csv(os.path.join(notype_dpath, filename))
+    #     first_valid_idx = series[(series['Valid'] == True) & (series['Task'] == True)].index[0]
+    #     # Find the last row where both Valid and Task are True
+    #     last_valid_idx = series[(series['Valid'] == True) & (series['Task'] == True)].index[-1]
+    #     # Remove the previous rows
+    #     df_filtered = series.iloc[first_valid_idx:last_valid_idx+1]
+    #     df_filtered.rename(columns={
+    #         'AccV': 'LowerBack_Acc_Z',
+    #         'AccML': 'LowerBack_Acc_Y',
+    #         'AccAP': 'LowerBack_Acc_X',
+    #     }, inplace=True)
+        
+
+    #     # Populate the new DataFrame
+    #     gt_df[f'GroundTruth_Trial{csv_count}'] = df_filtered.apply(
+    #         lambda row: row['Event'] if row['Valid'] and row['Task'] else 2,
+    #         axis=1
+    #     )
+        
+    #     df_filtered['Annotation'] = 'unlabeled'
+    #     df_filtered.drop(columns=['Event', 'Valid', 'Task'], inplace=True)
+    #     desired_order = ['Time', 'Annotation', 'LowerBack_Acc_X', 'LowerBack_Acc_Y', 'LowerBack_Acc_Z']
+    #     df_filtered = df_filtered[desired_order]
+    #     new_csv_path = os.path.join(rectified_train_path, 
+    #                                 f"rectified_{csv_count}_kaggle_pd_data.csv")
+    #     df_filtered.to_csv(new_csv_path, index=False)
+    # gt_df.to_csv(os.path.join(rectified_train_path, "gt_kaggle_pd_data.csv"), index=False)
+    
+    #* Process defog ----------------------------------------------------------
+    # defog_dpath = 'data/kaggle_pd_data/train/defog'
+    # csv_files_list = sorted(os.listdir(defog_dpath))
+    # csv_count = 46
+    # gt_df = pd.read_csv(os.path.join(rectified_train_path, "gt_kaggle_pd_data.csv"))
+    # for filename in tqdm(csv_files_list):
+    #     if not filename.endswith('.csv'):
+    #         continue
+        
+    #     print(filename)
+        
+    #     csv_count += 1
+    #     series = pd.read_csv(os.path.join(defog_dpath, filename))
+    #     first_valid_idx = series[(series['Valid'] == True) & (series['Task'] == True)].index[0]
+    #     # Find the last row where both Valid and Task are True
+    #     last_valid_idx = series[(series['Valid'] == True) & (series['Task'] == True)].index[-1]
+    #     # Remove the previous rows
+    #     df_filtered = series.iloc[first_valid_idx:last_valid_idx+1]
+    #     df_filtered.rename(columns={
+    #         'AccV': 'LowerBack_Acc_Z',
+    #         'AccML': 'LowerBack_Acc_Y',
+    #         'AccAP': 'LowerBack_Acc_X',
+    #     }, inplace=True)
+        
+    #     df_filtered['Event'] = df_filtered.apply(lambda row: 1 if row[['StartHesitation', 'Turn', 'Walking']].any() else 0, axis=1)
+        
+    #     df_filtered['Annotation'] = df_filtered.apply(lambda row: 'StartHesitation' if row['StartHesitation'] == 1 else
+    #                                     'Turn' if row['Turn'] == 1 else
+    #                                     'Walk' if row['Walking'] == 1 else
+    #                                     'unlabeled', axis=1)
+        
+    #     # Populate the new DataFrame
+    #     gt_df[f'GroundTruth_Trial{csv_count}'] = df_filtered.apply(
+    #         lambda row: row['Event'] if row['Valid'] and row['Task'] else 2,
+    #         axis=1
+    #     )
+        
+    #     df_filtered.drop(columns=['Event', 'Valid', 'Task', 'StartHesitation', 'Turn', 'Walking'], inplace=True)
+    #     desired_order = ['Time', 'Annotation', 'LowerBack_Acc_X', 'LowerBack_Acc_Y', 'LowerBack_Acc_Z']
+    #     df_filtered = df_filtered[desired_order]
+    #     new_csv_path = os.path.join(rectified_train_path, 
+    #                                 f"rectified_{csv_count}_kaggle_pd_data.csv")
+    #     df_filtered.to_csv(new_csv_path, index=False)
+        
+    # gt_df.to_csv(os.path.join(rectified_train_path, "gt_kaggle_pd_data.csv"), index=False)
+    
+    
+    #* Process notype ----------------------------------------------------------
+    defog_dpath = 'data/kaggle_pd_data/train/defog'
+    csv_files_list = sorted(os.listdir(defog_dpath))
+    csv_count = 46
+    gt_df = pd.read_csv(os.path.join(rectified_train_path, "gt_kaggle_pd_data.csv"))
     for filename in tqdm(csv_files_list):
         if not filename.endswith('.csv'):
             continue
+        
         print(filename)
         
         csv_count += 1
-        series = pd.read_csv(os.path.join(notype_dpath, filename))
+        series = pd.read_csv(os.path.join(defog_dpath, filename))
         first_valid_idx = series[(series['Valid'] == True) & (series['Task'] == True)].index[0]
         # Find the last row where both Valid and Task are True
         last_valid_idx = series[(series['Valid'] == True) & (series['Task'] == True)].index[-1]
@@ -188,20 +275,29 @@ def process_kaggle_pd_data():
             'AccAP': 'LowerBack_Acc_X',
         }, inplace=True)
         
-        gt_df = pd.DataFrame()
-
+        df_filtered['Event'] = df_filtered.apply(lambda row: 1 if row[['StartHesitation', 'Turn', 'Walking']].any() else 0, axis=1)
+        
+        df_filtered['Annotation'] = df_filtered.apply(lambda row: 'StartHesitation' if row['StartHesitation'] == 1 else
+                                        'Turn' if row['Turn'] == 1 else
+                                        'Walk' if row['Walking'] == 1 else
+                                        'unlabeled', axis=1)
+        
         # Populate the new DataFrame
         gt_df[f'GroundTruth_Trial{csv_count}'] = df_filtered.apply(
             lambda row: row['Event'] if row['Valid'] and row['Task'] else 2,
             axis=1
         )
-        print(len(series['AccAP']))
-        print(len(df_filtered['LowerBack_Acc_X']))
-        print(df_filtered.head())
-        print(len(gt_df[f'GroundTruth_Trial{csv_count}']))
-        exit(0)
         
-    
+        df_filtered.drop(columns=['Event', 'Valid', 'Task', 'StartHesitation', 'Turn', 'Walking'], inplace=True)
+        desired_order = ['Time', 'Annotation', 'LowerBack_Acc_X', 'LowerBack_Acc_Y', 'LowerBack_Acc_Z']
+        df_filtered = df_filtered[desired_order]
+        new_csv_path = os.path.join(rectified_train_path, 
+                                    f"rectified_{csv_count}_kaggle_pd_data.csv")
+        df_filtered.to_csv(new_csv_path, index=False)
+        
+    gt_df.to_csv(os.path.join(rectified_train_path, "gt_kaggle_pd_data.csv"), index=False)
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
