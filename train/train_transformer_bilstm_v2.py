@@ -7,11 +7,11 @@ from sklearn.metrics import precision_recall_curve, auc
 from torch.optim import Adam, AdamW
 from torch.utils import data
 
-from data.fog_dataset_v1 import FoGDataset
-from models.transformer_bilstm_v1 import TransformerBiLSTM
+from data.fog_dataset_v2 import FoGDataset
+from models.transformer_bilstm_v2 import TransformerBiLSTM
 from tqdm import tqdm
-from utils.config import FEATURES_LIST
-from utils.train_util_v1 import cycle_dataloader, save_group_args
+from utils.config import ALL_DATASETS, FEATURES_LIST
+from utils.train_util_v2 import cycle_dataloader, save_group_args
 
 
 MYLOGGER = logging.getLogger()
@@ -338,6 +338,7 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     
     # project information: names ===============================================
+    parser.add_argument('--version', type=int, default=None)
     parser.add_argument('--project', default='runs/train', help='project/name')
     parser.add_argument('--exp_name', default='transfomer_bilstm', 
                                             help='save to project/name')
@@ -353,8 +354,8 @@ def parse_opt():
     # data path
     parser.add_argument('--root_dpath', default='data/rectified_data', 
                                         help='directory that contains different processed datasets')
-    parser.add_argument('--data_name', type=str, nargs='+', default=None, 
-                                       help='provided data name, train first, val second')
+    parser.add_argument('--train_datasets', type=str, nargs='+', default=ALL_DATASETS, 
+                                       help='provided dataset_name, e.g. kaggle, ...')
     
     # GPU ======================================================================
     parser.add_argument('--device', default='0', help='assign gpu')
@@ -386,13 +387,16 @@ def parse_opt():
     parser.add_argument('--penalty_cost', type=float, default=0, 
                                           help='penalize when misclassifying the minor class(fog)')
     
+    parser.add_argument('--random_aug', action='store_true', help="randomly augment data")
+    parser.add_argument('--num_feats', type=int, default=len(FEATURES_LIST) - 1, 
+                                                 help='number of features in raw data')
     
     parser.add_argument('--block_size', type=int, default=15552)
     parser.add_argument('--block_stride', type=int, default=15552 // 16) # 972
     parser.add_argument('--patch_size', type=int, default=18)
 
-    #! parser.add_argument('--fog_model_input_dim', type=int, default=18*len(FEATURES_LIST))
-    parser.add_argument('--fog_model_input_dim', type=int, default=18*9)
+    #! may need to change if embed annotation
+    parser.add_argument('--fog_model_input_dim', type=int, default=18*(len(FEATURES_LIST)-1))
 
     parser.add_argument('--fog_model_dim', type=int, default=320)
     parser.add_argument('--fog_model_num_heads', type=int, default=8)
@@ -416,6 +420,9 @@ if __name__ == "__main__":
     assert torch.cuda.is_available(), "**** No available GPUs."
     
     opt = parse_opt()
+    
+    assert opt.version is not None, "pass the version parameter"
+    
     cur_time = datetime.now()
     cur_time = '{:%Y_%m_%d_%H:%M:%S}.{:02.0f}'.format(cur_time, 
                                                       cur_time.microsecond / 10000.0)
@@ -431,10 +438,10 @@ if __name__ == "__main__":
     os.makedirs(opt.save_dir, exist_ok=True)
 
     # Save some important code
-    source_files = ['train/train_transformer_bilstm_v1.py', 
-                    'utils/train_util_v1.py', 'utils/config_v1.py',
-                    'data/fog_dataset_v1.py',
-                    'models/transformer_bilstm_v1.py']
+    source_files = [f'train/train_transformer_bilstm_v{opt.version}.py', 
+                    f'utils/train_util_v{opt.version}.py', 'utils/config.py',
+                    f'data/fog_dataset_v{opt.version}.py',
+                    f'models/transformer_bilstm_v{opt.version}.py']
     codes_dest = os.path.join(opt.save_dir, 'codes')
     os.makedirs(codes_dest)
     for file_dir in source_files:

@@ -1,6 +1,7 @@
-import os, yaml
+import math, os, yaml
 
 import torch
+import numpy as np
 from torch.optim import lr_scheduler
 
 
@@ -21,6 +22,28 @@ from torch.optim import lr_scheduler
 
 #     def lr_lambda(self, step):
 #         return min(self.initial_lr, self.initial_lr * (step / self.warmup_steps))
+
+def norm_axis(a,b,c):
+    newa=a/(math.sqrt(float(a*a+b*b+c*c)))
+    newb=b/(math.sqrt(float(a*a+b*b+c*c)))
+    newc=c/(math.sqrt(float(a*a+b*b+c*c)))
+    return ([newa,newb,newc])
+
+def rotation_matrix(axis, theta):
+    axis = np.asarray(axis)
+    axis = axis/math.sqrt(np.dot(axis, axis))
+    a = math.cos(theta/2.0)
+    b, c, d = -axis*math.sin(theta/2.0)
+    aa, bb, cc, dd = a*a, b*b, c*c, d*d
+    bc, ad, ac, ab, bd, cd = b*c, a*d, a*c, a*b, b*d, c*d
+    return np.array([[aa+bb-cc-dd, 2*(bc+ad), 2*(bd-ac)], 
+                     [2*(bc-ad), aa+cc-bb-dd, 2*(cd+ab)], 
+                     [2*(bd+ac), 2*(cd-ab), aa+dd-bb-cc]])
+
+def rotateC(image,theta,a,b,c): ## theta: angle, a, b, c, eular vector
+    axis=norm_axis(a,b,c)
+    imagenew=np.dot(image, rotation_matrix(axis,theta))
+    return imagenew
 
 
 def cycle_dataloader(dl):

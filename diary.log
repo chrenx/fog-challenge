@@ -21,27 +21,73 @@ single_data_dict(all_dataset_fog_release.p): {     # already normalized
     ...
 }
 
-single_data_dict(all_kaggle_pd_data.p): {     # already normalized
-    "rectified_1_kaggle_pd_data": {
-        'gt': (N,)     torch.int8    # 0 = no freeze, 1 = freeze, 2 = out of experiment
-        'LowerBack_Acc_X': (N,) 
-        'LowerBack_Acc_Y': (N,) 
-        'LowerBack_Acc_Z': (N,)
-    },
-    ...
-}
-
 block_data_dict(all train_dataset_name.p): {
     0: {
         'series_name': series_name, # rectified_1_dataset_fog_release
         'start_t_idx': start_t_idx, # 0,     972, ...
         'end_t_idx': end_t_idx,     # 15552, 16524, ...
-        'model_input': (block_size, num_feats)
+        'model_input': (BLKS//P, P*num_feats) ()
+        'gt': (block_size,)
+    }
+}
+
+single_data_dict(all_kaggle_pd_data.p): {     # already normalized
+    "rectified_1_kaggle_pd_data": {
+        'ori_filename': 'rectified_1_kaggle_pd_data_defog'
+        'gt': (N,)     torch.int8    # 0 = no freeze, 1 = freeze, 2 = out of experiment
+        'Annotation': (N,)          numpy
+        'LowerBack_Acc_X': (N,)     torch
+        'LowerBack_Acc_Y': (N,)     torch
+        'LowerBack_Acc_Z': (N,)     torch
+    },
+    ...
+}
+
+kaggle's ( train_dataset_name.p): {
+    0: {
+        'series_name': series_name, # rectified_1_dataset_fog_release
+        'start_t_idx': start_t_idx, # 0,     972, ...
+        'end_t_idx': end_t_idx,     # 15552, 16524, ...
+        'model_input': (BLKS//P, P*num_feats) ()
         'gt': (block_size,)
     }
 }
 
 
+
+数据集名称 data_fog_release:
+
+raw data:
+	fog : normal = 1:2.77
+	64 Hz: 1秒64个data point
+	每个series长度不一
+    一共9个features: 'L_Ankle_Acc_X'
+                    'L_Ankle_Acc_Y'
+                    'L_Ankle_Acc_Z'
+                    'L_MidLatThigh_Acc_X'
+                    'L_MidLatThigh_Acc_Y'
+                    'L_MidLatThigh_Acc_Z'
+                    'LowerBack_Acc_X' 
+                    'LowerBack_Acc_Y' 
+                    'LowerBack_Acc_Z'
+
+rectified data:
+    每个series会被zero pad成block_size的倍数
+    e.g. 假如一个raw data长度为 (31000,9), 经过pad --> (31104,9)  # 31104=15552*2
+         这一份raw data会被拆成多份:
+            raw_data[0:15552, :] --> (15552, 9)
+            raw_data[972:972+15552, :] --> (15552, 9)
+            ...
+            raw_data[15552:31104,:] --> (15552, 9)
+            这一份raw data就会被拆成16份
+        16份data, 每一份会被reshape-->(864, patch_size, 9) --> (864, patch_size*9)
+        (864, patch_size*9)会作为一个batch里的sample, 也是model的input
+        model outputs probability for each class --> (batch_size, 864, 2)
+
+block_size = 15552
+block_stride = 15552 // 16 = 972
+patch_size = 18
+block_size // patch_size = 864
 
 
 

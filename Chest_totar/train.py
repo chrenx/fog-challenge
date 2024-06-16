@@ -124,6 +124,7 @@ def generate_data(train_line, batch_size, if_train):
             #rrr_scale=rrr*(max_scale-min_scale)+min_scale 
             if (if_train==1):
                 #seq=scaleImage(seq,rrr_scale)
+                #**&*********************************************************
                 theta=random.random()*math.pi*2
                 theta=random.random()*360
                 #print(theta)

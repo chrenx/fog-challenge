@@ -3,7 +3,7 @@ ALL_DATASETS = ['dataset_fog_release', 'kaggle_pd_data']
 VALIDATION_SET = ["rectified_5_dataset_fog_release", 
                   "rectified_14_dataset_fog_release"]
 
-FEATURES_LIST = ['GeneralEvent', 'ClinicalEvent',
+FEATURES_LIST = ['Annotation',
                  'L_Ankle_Acc_X', 'L_Ankle_Acc_Y', 'L_Ankle_Acc_Z', 
                  'L_MidLatThigh_Acc_X', 'L_MidLatThigh_Acc_Y', 'L_MidLatThigh_Acc_Z',
                  'LowerBack_Acc_X', 'LowerBack_Acc_Y', 'LowerBack_Acc_Z']
