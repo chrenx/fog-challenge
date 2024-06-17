@@ -3,6 +3,26 @@ ALL_DATASETS = ['dataset_fog_release', 'kaggle_pd_data']
 VALIDATION_SET = ["rectified_5_dataset_fog_release", 
                   "rectified_14_dataset_fog_release"]
 
+VALIDATION_SET_kaggle = ['rectified_7_kaggle_pd_data',
+                         'rectified_11_kaggle_pd_data',
+                         'rectified_12_kaggle_pd_data',
+                         'rectified_13_kaggle_pd_data',
+                         'rectified_16_kaggle_pd_data',
+                         'rectified_21_kaggle_pd_data',
+                         'rectified_22_kaggle_pd_data',
+                         'rectified_24_kaggle_pd_data',
+                         'rectified_25_kaggle_pd_data',
+                         'rectified_26_kaggle_pd_data',
+                         'rectified_27_kaggle_pd_data',
+                         'rectified_36_kaggle_pd_data',
+                         'rectified_41_kaggle_pd_data',
+                         'rectified_42_kaggle_pd_data',
+                         'rectified_43_kaggle_pd_data',
+                         'rectified_44_kaggle_pd_data',
+                         'rectified_48_kaggle_pd_data',
+                         'rectified_51_kaggle_pd_data']
+
+
 FEATURES_LIST = ['Annotation',
                  'L_Ankle_Acc_X', 'L_Ankle_Acc_Y', 'L_Ankle_Acc_Z', 
                  'L_MidLatThigh_Acc_X', 'L_MidLatThigh_Acc_Y', 'L_MidLatThigh_Acc_Z',

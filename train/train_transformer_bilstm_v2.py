@@ -120,7 +120,7 @@ class Trainer(object):
 
         Args:
             pred: (B, BLKS//P, 2)
-            gt: (B, BLKS//P, 3)
+            gt: (B, BLKS//P, 3) one hot
         """
         loss = self.bce_loss(pred, gt[:,:,:2]) # (B, BLKS//P, 2)
         mask = (gt[:,:,2] != 1).float() # (B, BLKS//P)
@@ -138,7 +138,7 @@ class Trainer(object):
 
         Args:
             output: (B, BLKS//P, 2)   # prob class
-            gt:   (B, BLKS//P, 3)   # the third pos indicates the class
+            gt:   (B, BLKS//P, 3)   # one hot
         """
         # Convert the model output probabilities to class predictions
         pred = torch.argmax(output, dim=-1)  # (B, BLKS//P)
@@ -242,17 +242,18 @@ class Trainer(object):
             # validation part --------------------------------------------------
             cur_epoch = (step_idx + 1) // self.train_n_batch
             if (step_idx + 1) % self.train_n_batch == 0: #* an epoch
+            # if True:
                 avg_val_f1 = 0.0
                 avg_val_loss = 0.0
                 avg_val_prec = 0.0
                 avg_val_recall = 0.0
                 avg_val_mAP = 0.0
-                all_recalls, all_precisions = [], []
+                # all_recalls, all_precisions = [], []
                 all_val_gt, all_val_pred = [], []
                 
                 self.model.eval()
                 with torch.no_grad():
-                    for _ in range(self.val_n_batch):
+                    for _ in tqdm(range(self.val_n_batch), desc=f"Validation at epoch {cur_epoch}"):
                         val_data = next(self.val_dl) 
                         val_input = val_data['model_input']
                         val_gt = val_data['gt'] # (B, BLKS//P, 3)
@@ -267,8 +268,8 @@ class Trainer(object):
                         avg_val_recall += recall
                         avg_val_mAP += ap
                         
-                        all_recalls.append(recall.item())
-                        all_precisions.append(prec.item())
+                        # all_recalls.append(recall.item())
+                        # all_precisions.append(prec.item())
                         
                         tmp_gt = val_gt.reshape(-1, 3)
                         mask = tmp_gt[:,2] != 1
@@ -283,7 +284,7 @@ class Trainer(object):
                     avg_val_recall /= self.val_n_batch
                     avg_val_mAP /= self.val_n_batch
                     
-                    pr_auc = auc(all_recalls, all_precisions)
+                    # pr_auc = auc(all_recalls, all_precisions)
                     
                     all_val_gt = np.concatenate(all_val_gt, axis=0)  # (B*BLKS//P',3)
                     all_val_pred = np.concatenate(all_val_pred, axis=0)  # (B*BLKS//P',2)
@@ -295,7 +296,7 @@ class Trainer(object):
                             "Val/avg_val_prec": avg_val_prec.item(),
                             "Val/avg_val_recall": avg_val_recall.item(),
                             "Val/avg_val_mAP": avg_val_mAP.item(),
-                            "Val/pr_auc": pr_auc,
+                            # "Val/pr_auc": pr_auc,
                         }
                         wandb.log(log_dict, step=step_idx+1)
                         wandb.log({'precision_recall_curve': 
@@ -308,8 +309,7 @@ class Trainer(object):
                     MYLOGGER.info(f"avg_val_prec: {avg_val_prec.item():4f}")
                     MYLOGGER.info(f"avg_val_recall: {avg_val_recall.item():4f}")
                     MYLOGGER.info(f"avg_val_mAP: {avg_val_mAP.item():4f}")
-                    MYLOGGER.info(f"pr_auc: {pr_auc.item():4f}")
-
+                    # MYLOGGER.info(f"pr_auc: {pr_auc.item():4f}")
                 
                 # Log learning rate
                 if self.use_wandb:
@@ -328,7 +328,8 @@ class Trainer(object):
                     
                 if self.save_best_model and avg_val_mAP > best_mAP:
                     best_mAP = avg_val_mAP
-                    wandb.run.summary['best_mAP'] = avg_val_mAP.item()
+                    if self.use_wandb:
+                        wandb.run.summary['best_mAP'] = avg_val_mAP.item()
                     self._save_model(step_idx, base='mAP', best=True)
                     
                 self._save_model(step_idx, base='regular', best=False)
@@ -342,7 +343,6 @@ def run_train(opt):
     model = TransformerBiLSTM(opt)
     model.to(opt.device)
     trainer = Trainer(model, opt)
-    exit(0)
     trainer.train()
     torch.cuda.empty_cache()
 

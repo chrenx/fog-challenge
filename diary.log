@@ -21,13 +21,13 @@ single_data_dict(all_dataset_fog_release.p): {     # already normalized
     ...
 }
 
-block_data_dict(all train_dataset_name.p): {
+dataset_fog_release(all train_dataset_name.p): {
     0: {
         'series_name': series_name, # rectified_1_dataset_fog_release
         'start_t_idx': start_t_idx, # 0,     972, ...
         'end_t_idx': end_t_idx,     # 15552, 16524, ...
         'model_input': (BLKS//P, P*num_feats) ()
-        'gt': (block_size,)
+        'gt': (block_size,) 0,1,2
     }
 }
 
