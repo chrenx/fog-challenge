@@ -46,10 +46,11 @@ single_data_dict(all_kaggle_pd_data.p): {     # already normalized
 kaggle's ( train_dataset_name.p): {
     0: {
         'series_name': series_name, # rectified_1_dataset_fog_release
+        'ori_series_name': series_info['ori_filename'],
         'start_t_idx': start_t_idx, # 0,     972, ...
         'end_t_idx': end_t_idx,     # 15552, 16524, ...
-        'model_input': (BLKS//P, P*num_feats) ()
-        'gt': (block_size,)
+        'model_input': (BLKS//P, P*num_feats) (864, 18*3)
+        'gt': # (BLKS//P, 3) one-hot
     }
 }
 

@@ -4,22 +4,30 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
         {
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
             "cwd": "${workspaceFolder}",
             // "program": "${workspaceFolder}",
-            "module": "train.train_transformer_bilstm",
+            "module": "train.train_transformer_bilstm_v2",
             "console": "integratedTerminal",
-            "args": ["--device",                    "5", 
-                     "--exp_name",                  "transfomer_bilstm", 
-                     "--wandb_pj_name",             "challenge",
-                     "--entity",                    "chrenx", 
-                     "--save_and_sample_every",     "10",
-                     "--train_num_steps",           "10",
-                     "--save_best_model",
-                     "--disable_wandb"],
+            "args": ["version", "2",
+                    "device",                "1",
+                    "exp_name",              "transfomer_bilstm_v2",
+                    "wandb_pj_name",         "fog-challenge",
+                    "entity",                "chrenx",
+                    "save_best_model",       
+                    "description",           "just kaggle data",
+                    "optimizer",             "adamw",
+                    "seed",                  "11",
+                    "fog_model_dim",         "320",
+                    "penalty_cost",          "2",
+                    "random_aug",       
+                    "train_datasets",        "kaggle_pd_data",
+                    "num_feats",             "3",
+                    "disable_wandb",]
         }
     ]
 }

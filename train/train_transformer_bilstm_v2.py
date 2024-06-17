@@ -60,6 +60,16 @@ class Trainer(object):
         MYLOGGER.info(f"---- train n batch: {self.train_n_batch}")
         MYLOGGER.info(f"---- val n batch: {self.val_n_batch}")
         
+        # tmp = next(iter(self.train_dl))
+        # print(tmp.keys())
+        # print(tmp['model_input'].device)
+        # print(tmp['model_input'].shape)
+        # print(tmp['gt'].device)
+        # print(tmp['gt'].shape)
+        # print(type(tmp['series_name']))
+        # print(type(tmp['start_t_idx']))
+        # exit(0)
+        
     def _prepare_dataloader(self, opt):
         MYLOGGER.info("Loading training data ...")
         
@@ -206,6 +216,7 @@ class Trainer(object):
             train_input = train_data['model_input'] # (B, BLKS//P, P*num_feats)
             train_gt = train_data['gt'] # (B, BLKS//P, 3)
             train_pred = self.model(train_input) # (B, BLKS//P, 2)
+            
             train_loss = self._loss_func(train_pred, train_gt.to(self.device))
             
             train_loss.backward()
@@ -331,6 +342,7 @@ def run_train(opt):
     model = TransformerBiLSTM(opt)
     model.to(opt.device)
     trainer = Trainer(model, opt)
+    exit(0)
     trainer.train()
     torch.cuda.empty_cache()
 
@@ -396,7 +408,8 @@ def parse_opt():
     parser.add_argument('--patch_size', type=int, default=18)
 
     #! may need to change if embed annotation
-    parser.add_argument('--fog_model_input_dim', type=int, default=18*(len(FEATURES_LIST)-1))
+    # parser.add_argument('--fog_model_input_dim', type=int, default=18*(len(FEATURES_LIST)-1))
+    parser.add_argument('--fog_model_input_dim', type=int, default=18*3)
 
     parser.add_argument('--fog_model_dim', type=int, default=320)
     parser.add_argument('--fog_model_num_heads', type=int, default=8)
