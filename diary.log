@@ -51,6 +51,7 @@ kaggle's ( train_dataset_name.p): {
         'end_t_idx': end_t_idx,     # 15552, 16524, ...
         'model_input': (BLKS//P, P*num_feats) (864, 18*3)
         'gt': # (BLKS//P, 3) one-hot
+        'inference_gt': # (BLKS, 3) one-hot
     }
 }
 

@@ -3,4 +3,5 @@ runs/*
 **/__pycache__/
 
 !data/.gitkeep
+!data/fog_dataset*
 !runs/.gitkeep

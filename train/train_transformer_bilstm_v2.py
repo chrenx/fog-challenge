@@ -34,13 +34,14 @@ class Trainer(object):
         
         #* NEW: self.train_dl, self.train_n_batch, self.val_dl, self.val_n_batch
         self._prepare_dataloader(opt) 
-
+        
         self.model = model
         self.optimizer = None
         self.cur_step = 0
         self.train_num_steps = opt.train_num_steps
         self.device = opt.device
         self.bce_loss = torch.nn.BCELoss(reduction='none')
+        self.opt = opt
         
         if opt.optimizer == 'adam':
             self.optimizer = Adam(self.model.parameters(), lr=opt.learning_rate, 
@@ -119,7 +120,7 @@ class Trainer(object):
         """Compute the Binary Cross-Entropy loss for each class and sum over the class dimension
 
         Args:
-            pred: (B, BLKS//P, 2)
+            pred: (B, BLKS//P, 2) prob
             gt: (B, BLKS//P, 3) one hot
         """
         loss = self.bce_loss(pred, gt[:,:,:2]) # (B, BLKS//P, 2)
@@ -137,8 +138,8 @@ class Trainer(object):
         """Generate precision, recall, and f1 score.
 
         Args:
-            output: (B, BLKS//P, 2)   # prob class
-            gt:   (B, BLKS//P, 3)   # one hot
+            output: (B, BLKS, 2)   # prob class
+            gt (inference):   (B, BLKS, 3)   # one hot
         """
         # Convert the model output probabilities to class predictions
         pred = torch.argmax(output, dim=-1)  # (B, BLKS//P)
@@ -256,11 +257,25 @@ class Trainer(object):
                     for _ in tqdm(range(self.val_n_batch), desc=f"Validation at epoch {cur_epoch}"):
                         val_data = next(self.val_dl) 
                         val_input = val_data['model_input']
-                        val_gt = val_data['gt'] # (B, BLKS//P, 3)
+                        val_inference_gt = val_data['inference_gt'] # (B, BLKS, 3)
+                        
                         val_pred = self.model(val_input) # (B, BLKS//P, 2)
+                        
+                        val_pred = val_pred.unsqueeze(-1) # (B, BLKS//P, 2, 1)
+                        val_pred = val_pred.permute(0,1,3,2) # (B, BLKS//P, 1, 2)
+                        
+                        # (B, BLKS//P, P, 2)
+                        val_pred = val_pred.repeat(1, 1, self.opt.patch_size, 1)
+                        # (B, BLKS, 2)
+                        val_pred = val_pred.reshape(val_pred.shape[0], self.opt.block_size, 2)
+                        
+                        assert val_pred.shape == val_inference_gt[:,:,:-1].shape, \
+                               f"val_pred {val_pred.shape} and val_inference_gt "\
+                               f"{val_inference_gt.shape} have different shape"
+                        
                         prec, recall, f1, ap = self._evaluation_metrics(val_pred, 
-                                                                    val_gt.to(self.device))
-                        val_loss = self._loss_func(val_pred, val_gt.to(self.device))
+                                                                val_inference_gt.to(self.device))
+                        val_loss = self._loss_func(val_pred, val_inference_gt.to(self.device))
                         
                         avg_val_f1 += f1
                         avg_val_loss += val_loss
@@ -271,7 +286,7 @@ class Trainer(object):
                         # all_recalls.append(recall.item())
                         # all_precisions.append(prec.item())
                         
-                        tmp_gt = val_gt.reshape(-1, 3)
+                        tmp_gt = val_inference_gt.reshape(-1, 3)
                         mask = tmp_gt[:,2] != 1
                         tmp_gt = tmp_gt[mask] # (B*BLKS//P',3)
                         tmp_pred = val_pred.reshape(-1, 2)[mask] # (B*BLKS//P',2)
