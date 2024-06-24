@@ -1,11 +1,11 @@
-python -m train.train_transformer_bilstm_v2 \
+python -m train.train_transformer_v1 \
        --version               2 \
-       --device                3 \
-       --exp_name              transformer_bilstm_v2 \
+       --device                2 \
+       --exp_name              transformer_v1 \
        --wandb_pj_name         fog-challenge \
        --entity                chrenx \
        --save_best_model       \
-       --description           "different way to validate, BS 128 adam, kaggle" \
+       --description           "transformer only no bilstm, BS 128 adam, kaggle" \
        --optimizer             "adam" \
        --seed                  11 \
        --fog_model_dim         320 \

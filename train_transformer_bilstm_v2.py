@@ -41,7 +41,6 @@ class Trainer(object):
         self.train_num_steps = opt.train_num_steps
         self.device = opt.device
         self.bce_loss = torch.nn.BCELoss(reduction='none')
-        self.max_grad_norm = self.opt.max_grad_norm
         self.opt = opt
         
         if opt.optimizer == 'adam':
@@ -213,7 +212,7 @@ class Trainer(object):
             self.model.train()
             self.optimizer.zero_grad()
             
-            #* training part -----------------------------------------------------------------------
+            # training part ----------------------------------------------------
             train_data = next(self.train_dl)
             train_input = train_data['model_input'] # (B, BLKS//P, P*num_feats)
             train_gt = train_data['gt'] # (B, BLKS//P, 3)
@@ -222,8 +221,6 @@ class Trainer(object):
             train_loss = self._loss_func(train_pred, train_gt.to(self.device))
             
             train_loss.backward()
-            
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
             
             # check gradients
             parameters = [p for p in self.model.parameters() if p.grad is not None]
@@ -243,7 +240,7 @@ class Trainer(object):
                 }
                 wandb.log(log_dict, step=step_idx+1)
                 
-            #* validation part ---------------------------------------------------------------------
+            # validation part --------------------------------------------------
             cur_epoch = (step_idx + 1) // self.train_n_batch
             if (step_idx + 1) % self.train_n_batch == 0: #* an epoch
             # if True:
@@ -262,7 +259,7 @@ class Trainer(object):
                         val_input = val_data['model_input']
                         val_inference_gt = val_data['inference_gt'] # (B, BLKS, 3)
                         
-                        val_pred = self.model(val_input, training=False) # (B, BLKS//P, 2)
+                        val_pred = self.model(val_input) # (B, BLKS//P, 2)
                         
                         val_pred = val_pred.unsqueeze(-1) # (B, BLKS//P, 2, 1)
                         val_pred = val_pred.permute(0,1,3,2) # (B, BLKS//P, 1, 2)
@@ -352,7 +349,7 @@ class Trainer(object):
                     
                 self._save_model(step_idx, base='regular', best=False)
             
-                #* learning rate scheduler ---------------------------------------------------------
+                # learning rate scheduler -------------------------------------- 
                 if cur_epoch > self.warmup_steps:    
                     self.scheduler_optim.step(avg_val_loss)
 
@@ -424,9 +421,6 @@ def parse_opt():
     parser.add_argument('--block_size', type=int, default=15552)
     parser.add_argument('--block_stride', type=int, default=15552 // 16) # 972
     parser.add_argument('--patch_size', type=int, default=18)
-    
-    parser.add_argument('--max_grad_norm', type=float, default=1.0, 
-                                           help="prevent gradient explosion")
 
     #! may need to change if embed annotation
     # parser.add_argument('--fog_model_input_dim', type=int, default=18*(len(FEATURES_LIST)-1))

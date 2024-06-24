@@ -50,9 +50,9 @@ class Encoder(nn.Module):
         for _ in range(opt.fog_model_num_encoder_layers):
             self.enc_layers.append(EncoderLayer(opt))
             
-        self.lstm_layers = nn.LSTM(opt.fog_model_dim, opt.fog_model_dim, 
-                                   num_layers=opt.fog_model_num_lstm_layers,
-                                   batch_first=True, bidirectional=True)
+        # self.lstm_layers = nn.LSTM(opt.fog_model_dim, opt.fog_model_dim, 
+        #                            num_layers=opt.fog_model_num_lstm_layers,
+        #                            batch_first=True, bidirectional=True)
         
         self.sequence_len = opt.block_size // opt.patch_size # 864
         self.pos_encoding = nn.Parameter(torch.randn(1, self.sequence_len,
@@ -79,21 +79,20 @@ class Encoder(nn.Module):
         
         x = self.enc_layers(x) # (B,S,D)
         
-        x, _ = self.lstm_layers(x)
+        # x, _ = self.lstm_layers(x)
 
-        return x  # (B,S,D*2), e.g. (32, 864, 640)
+        return x  # (B,S,D), e.g. (32, 864, 320)
     
     
-class TransformerBiLSTM(nn.Module):
+class Transformer(nn.Module):
     def __init__(self, opt):
-        super(TransformerBiLSTM, self).__init__()
-        
+        super().__init__()
         self.encoder = Encoder(opt)
-        self.last_linear = nn.Linear(opt.fog_model_dim * 2, 2)
+        self.last_linear = nn.Linear(opt.fog_model_dim, 2)
         
     def forward(self, x, training=True):  
         # x: (B, BLKS//P, P*num_feats), e.g. (32, 864, 18*9)
-        x = self.encoder(x, training=training)  # (B,S,D*2), e.g. (32, 864, 640)
+        x = self.encoder(x, training=training)  # (B,S,D), e.g. (32, 864, 320)
         x = self.last_linear(x)  # (B,S,1), e.g. (32, 864, 2)
         x = torch.sigmoid(x)  # Sigmoid activation
         return x  # (B,BLKS//P,2)

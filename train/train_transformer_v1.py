@@ -8,7 +8,7 @@ from torch.optim import Adam, AdamW
 from torch.utils import data
 
 from data.fog_dataset_v2 import FoGDataset
-from models.transformer_bilstm_v2 import TransformerBiLSTM
+from models.transformer_v1 import Transformer
 from tqdm import tqdm
 from utils.config import ALL_DATASETS, FEATURES_LIST
 from utils.train_util_v2 import cycle_dataloader, save_group_args
@@ -41,7 +41,6 @@ class Trainer(object):
         self.train_num_steps = opt.train_num_steps
         self.device = opt.device
         self.bce_loss = torch.nn.BCELoss(reduction='none')
-        self.max_grad_norm = self.opt.max_grad_norm
         self.opt = opt
         
         if opt.optimizer == 'adam':
@@ -223,8 +222,6 @@ class Trainer(object):
             
             train_loss.backward()
             
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-            
             # check gradients
             parameters = [p for p in self.model.parameters() if p.grad is not None]
             total_norm = torch.norm(torch.stack([torch.norm(p.grad.detach(), 2.0).\
@@ -358,7 +355,7 @@ class Trainer(object):
 
 
 def run_train(opt):
-    model = TransformerBiLSTM(opt)
+    model = Transformer(opt)
     model.to(opt.device)
     trainer = Trainer(model, opt)
     trainer.train()
@@ -424,9 +421,6 @@ def parse_opt():
     parser.add_argument('--block_size', type=int, default=15552)
     parser.add_argument('--block_stride', type=int, default=15552 // 16) # 972
     parser.add_argument('--patch_size', type=int, default=18)
-    
-    parser.add_argument('--max_grad_norm', type=float, default=1.0, 
-                                           help="prevent gradient explosion")
 
     #! may need to change if embed annotation
     # parser.add_argument('--fog_model_input_dim', type=int, default=18*(len(FEATURES_LIST)-1))
