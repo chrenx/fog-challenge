@@ -7,11 +7,11 @@ from sklearn.metrics import precision_recall_curve, auc
 from torch.optim import Adam, AdamW
 from torch.utils import data
 
-from data.fog_dataset_v2 import FoGDataset
+from data.fog_dataset import FoGDataset
 from models.transformer_v1 import Transformer
 from tqdm import tqdm
 from utils.config import ALL_DATASETS, FEATURES_LIST
-from utils.train_util_v2 import cycle_dataloader, save_group_args
+from utils.train_util import cycle_dataloader, save_group_args
 
 
 MYLOGGER = logging.getLogger()
@@ -41,6 +41,7 @@ class Trainer(object):
         self.train_num_steps = opt.train_num_steps
         self.device = opt.device
         self.bce_loss = torch.nn.BCELoss(reduction='none')
+        self.max_grad_norm = opt.max_grad_norm
         self.opt = opt
         
         if opt.optimizer == 'adam':
@@ -221,6 +222,8 @@ class Trainer(object):
             train_loss = self._loss_func(train_pred, train_gt.to(self.device))
             
             train_loss.backward()
+            
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
             
             # check gradients
             parameters = [p for p in self.model.parameters() if p.grad is not None]
@@ -421,6 +424,9 @@ def parse_opt():
     parser.add_argument('--block_size', type=int, default=15552)
     parser.add_argument('--block_stride', type=int, default=15552 // 16) # 972
     parser.add_argument('--patch_size', type=int, default=18)
+    
+    parser.add_argument('--max_grad_norm', type=float, default=1.0, 
+                                           help="prevent gradient explosion")
 
     #! may need to change if embed annotation
     # parser.add_argument('--fog_model_input_dim', type=int, default=18*(len(FEATURES_LIST)-1))
@@ -466,10 +472,10 @@ if __name__ == "__main__":
     os.makedirs(opt.save_dir, exist_ok=True)
 
     # Save some important code
-    source_files = [f'train/train_transformer_bilstm_v{opt.version}.py', 
-                    f'utils/train_util_v{opt.version}.py', 'utils/config.py',
-                    f'data/fog_dataset_v{opt.version}.py',
-                    f'models/transformer_bilstm_v{opt.version}.py']
+    source_files = [f'train/train_transformer_v{opt.version}.py', 
+                    f'utils/train_util.py', 'utils/config.py',
+                    f'data/fog_dataset.py',
+                    f'models/transformer_v{opt.version}.py']
     codes_dest = os.path.join(opt.save_dir, 'codes')
     os.makedirs(codes_dest)
     for file_dir in source_files:
@@ -506,6 +512,8 @@ if __name__ == "__main__":
         MYLOGGER.info(f"-------- Job Description: --------\n{opt.description}")
     
     save_group_args(opt)
+    
+    opt.mylogger = MYLOGGER
 
     run_train(opt)
 

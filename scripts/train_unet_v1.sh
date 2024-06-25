@@ -1,11 +1,11 @@
-python -m train.train_transformer_v1 \
-       --version               2 \
+python -m train.train_unet_v1 \
+       --version               1 \
        --device                2 \
-       --exp_name              transformer_v1 \
+       --exp_name              unet_v1 \
        --wandb_pj_name         fog-challenge \
        --entity                chrenx \
        --save_best_model       \
-       --description           "transformer only no bilstm, BS 128 adam, kaggle" \
+       --description           "unet all sequence, BS 128 adam, kaggle" \
        --optimizer             "adam" \
        --seed                  11 \
        --fog_model_dim         320 \
@@ -15,6 +15,7 @@ python -m train.train_transformer_v1 \
        --train_num_steps       100000 \
        --batch_size            128 \
        --random_aug            \
+       --max_grad_norm         1.5 \
     #    --disable_wandb         #!!!            
     #    --fog_model_num_encoder_layers   4 \
     #    --weight_decay                   1e-6 \

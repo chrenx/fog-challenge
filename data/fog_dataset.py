@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from utils.config import ALL_DATASETS, VALIDATION_SET
-from utils.train_util_v2 import rotateC
+from utils.train_util import rotateC
 
 class FoGDataset(Dataset):
     '''
@@ -18,8 +18,8 @@ class FoGDataset(Dataset):
         Args:
             opt.root_dpath: 'data/rectified_data'
         """
-        from train.train_transformer_bilstm_v1 import MYLOGGER
-        self.logger = MYLOGGER
+
+        self.logger = opt.mylogger
         self.logger.info(f"-------- Initialize FoG dataset: {mode} mode --------")
         
         self.block_data_dict = {}

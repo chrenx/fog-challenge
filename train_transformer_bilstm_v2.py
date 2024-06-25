@@ -7,11 +7,11 @@ from sklearn.metrics import precision_recall_curve, auc
 from torch.optim import Adam, AdamW
 from torch.utils import data
 
-from data.fog_dataset_v2 import FoGDataset
+from data.fog_dataset import FoGDataset
 from models.transformer_bilstm_v2 import TransformerBiLSTM
 from tqdm import tqdm
 from utils.config import ALL_DATASETS, FEATURES_LIST
-from utils.train_util_v2 import cycle_dataloader, save_group_args
+from utils.train_util import cycle_dataloader, save_group_args
 
 
 MYLOGGER = logging.getLogger()

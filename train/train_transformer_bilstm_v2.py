@@ -7,11 +7,11 @@ from sklearn.metrics import precision_recall_curve, auc
 from torch.optim import Adam, AdamW
 from torch.utils import data
 
-from data.fog_dataset_v2 import FoGDataset
+from data.fog_dataset import FoGDataset
 from models.transformer_bilstm_v2 import TransformerBiLSTM
 from tqdm import tqdm
 from utils.config import ALL_DATASETS, FEATURES_LIST
-from utils.train_util_v2 import cycle_dataloader, save_group_args
+from utils.train_util import cycle_dataloader, save_group_args
 
 
 MYLOGGER = logging.getLogger()
@@ -473,8 +473,8 @@ if __name__ == "__main__":
 
     # Save some important code
     source_files = [f'train/train_transformer_bilstm_v{opt.version}.py', 
-                    f'utils/train_util_v{opt.version}.py', 'utils/config.py',
-                    f'data/fog_dataset_v{opt.version}.py',
+                    f'utils/train_util.py', 'utils/config.py',
+                    f'data/fog_dataset.py',
                     f'models/transformer_bilstm_v{opt.version}.py']
     codes_dest = os.path.join(opt.save_dir, 'codes')
     os.makedirs(codes_dest)
