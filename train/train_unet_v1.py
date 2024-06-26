@@ -8,7 +8,7 @@ from torch.optim import Adam, AdamW
 from torch.utils import data
 
 from data.fog_dataset import FoGDataset
-from models.transformer_v1 import Transformer
+from models.unet_v1 import UNet
 from tqdm import tqdm
 from utils.config import ALL_DATASETS, FEATURES_LIST
 from utils.train_util import cycle_dataloader, save_group_args
@@ -34,7 +34,7 @@ class Trainer(object):
         
         #* NEW: self.train_dl, self.train_n_batch, self.val_dl, self.val_n_batch
         self._prepare_dataloader(opt) 
-        
+
         self.model = model
         self.optimizer = None
         self.cur_step = 0
@@ -121,16 +121,21 @@ class Trainer(object):
         """Compute the Binary Cross-Entropy loss for each class and sum over the class dimension
 
         Args:
-            pred: (B, BLKS//P, 2) prob
-            gt: (B, BLKS//P, 3) one hot
+            pred: (B, window, 1) prob
+            gt: (B, window, 3) one hot
         """
-        loss = self.bce_loss(pred, gt[:,:,:2]) # (B, BLKS//P, 2)
-        mask = (gt[:,:,2] != 1).float() # (B, BLKS//P)
-        mask = mask.unsqueeze(-1).expand(-1, -1, 2) # (B, BLKS//P, 2)
+        max_indices = torch.argmax(gt, dim=2, keepdim=True) # (B, window, 1)
+        tmp_gt_mask = (max_indices != 2).float() # (B, window, 1)
+        tmp_gt = max_indices * tmp_gt_mask # (B, window, 1)
+        
+        loss = self.bce_loss(pred, tmp_gt) # (B, window, 1)
+
+        mask = (gt[:,:,2] != 1).float() # (B, window)
+        mask = mask.unsqueeze(-1) # (B, window, 1)
         
         # Additional cost for misclassifying the minority class
-        minority_mask = (gt[:,:,1] == 1).float() # (B, BLKS//P)
-        minority_mask = minority_mask.unsqueeze(-1).expand(-1, -1, 2) # (B, BLKS//P, 2)
+        minority_mask = (gt[:,:,1] == 1).float() # (B, window)
+        minority_mask = minority_mask.unsqueeze(-1) # (B, window, 1)
         loss = loss * (mask + self.penalty_cost * minority_mask)
    
         return loss.sum() / mask.sum()
@@ -139,21 +144,22 @@ class Trainer(object):
         """Generate precision, recall, and f1 score.
 
         Args:
-            output: (B, BLKS, 2)   # prob class
-            gt (inference):   (B, BLKS, 3)   # one hot
+            output: (B, window, 1)   # prob class
+            gt (inference):   (B, window, 3)   # one hot
         """
         # Convert the model output probabilities to class predictions
-        pred = torch.argmax(output, dim=-1)  # (B, BLKS//P)
+        pred = torch.round(output)  # (B, window, 1)
 
         # Extract the first two classes from the ground truth
-        real = torch.argmax(gt[:, :, :2], dim=-1)  # (B, BLKS//P)
+        real = torch.argmax(gt[:, :, :2], dim=-1, keepdim=True)  # (B, window, 1)
 
         # Create a mask to ignore the positions where the ground truth class is 2
-        mask = (gt[:, :, 2] != 1)  # (B, BLKS//P)
+        mask = (gt[:, :, 2] != 1).unsqueeze(-1)  # (B, window, 1)
 
         # Apply the mask to the predictions and ground truth
-        pred = pred * mask.long() # (B, BLKS//P)
-        real = real * mask.long() # (B, BLKS//P)
+        pred = (pred * mask.float()).squeeze() # (B, window)
+        real = (real * mask.float()).squeeze() # (B, window)
+        
 
         # Calculate true positives, false positives, and false negatives
         tp = ((pred == 1) & (real == 1)).float().sum()
@@ -165,65 +171,33 @@ class Trainer(object):
         recall = tp / (tp + fn + 1e-8)
         f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
         
-        # Calculate mean average precision (mAP)
-        # Create a list to store the precision values at different thresholds
-        precisions = []
-        recalls = []
-        
-        # Iterate over thresholds from 0 to 1 with a step size
-        thresholds = torch.linspace(0, 1, steps=101)
-        for t in thresholds:
-            # Binarize predictions based on the threshold
-            pred_binary = (output[:, :, 1] >= t).float()
-            
-            # Apply the mask to the binary predictions and ground truth
-            pred_binary = pred_binary * mask # (B, BLKS//P)
-            real_binary = real * mask        
-            
-            # Calculate true positives, false positives, and false negatives
-            tp_t = ((pred_binary == 1) & (real_binary == 1)).float().sum()
-            fp_t = ((pred_binary == 1) & (real_binary == 0)).float().sum()
-            fn_t = ((pred_binary == 0) & (real_binary == 1)).float().sum()
-
-            # Calculate precision and recall for the current threshold
-            precision_t = tp_t / (tp_t + fp_t + 1e-8)
-            recall_t = tp_t / (tp_t + fn_t + 1e-8)
-            
-            precisions.append(precision_t)
-            recalls.append(recall_t)
-        
-        # Convert lists to tensors
-        precisions = torch.tensor(precisions)
-        recalls = torch.tensor(recalls)
-        
-        # Sort by recall
-        recall_sorted, indices = torch.sort(recalls)
-        precision_sorted = precisions[indices]
-        
-        # Calculate average precision
-        ap = torch.trapz(precision_sorted, recall_sorted)
-        
-        return precision, recall, f1, ap          
+        return precision, recall, f1
 
     def train(self):
         best_f1 = 0
+        best_prec = 0
+        best_recall = 0
         best_loss = float('inf')
-        best_mAP = 0
+
         for step_idx in tqdm(range(0, self.train_num_steps), desc="Train"):
             self.model.train()
             self.optimizer.zero_grad()
             
             #* training part -----------------------------------------------------------------------
             train_data = next(self.train_dl)
-            train_input = train_data['model_input'] # (B, BLKS//P, P*num_feats)
-            train_gt = train_data['gt'] # (B, BLKS//P, 3)
-            train_pred = self.model(train_input) # (B, BLKS//P, 2)
-            
+            train_gt = train_data['gt'] # (B, window, 3) one-hot
+            train_input = train_data['model_input'] # (B, window, num_feats)
+            train_input = torch.permute(train_input, (0,2,1)) # (B, C_in, window)
+
+            train_pred = self.model(train_input) # (B,1,window)
+            train_pred = torch.permute(train_pred, (0,2,1)) # (B, window, 1)
+
             train_loss = self._loss_func(train_pred, train_gt.to(self.device))
             
             train_loss.backward()
             
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+            if self.max_grad_norm is not None:
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
             
             # check gradients
             parameters = [p for p in self.model.parameters() if p.grad is not None]
@@ -251,61 +225,32 @@ class Trainer(object):
                 avg_val_loss = 0.0
                 avg_val_prec = 0.0
                 avg_val_recall = 0.0
-                avg_val_mAP = 0.0
-                # all_recalls, all_precisions = [], []
-                all_val_gt, all_val_pred = [], []
                 
                 self.model.eval()
                 with torch.no_grad():
                     for _ in tqdm(range(self.val_n_batch), desc=f"Validation at epoch {cur_epoch}"):
                         val_data = next(self.val_dl) 
-                        val_input = val_data['model_input']
-                        val_inference_gt = val_data['inference_gt'] # (B, BLKS, 3)
+                        val_gt = val_data['gt'] # (B, window, 3)
                         
-                        val_pred = self.model(val_input, training=False) # (B, BLKS//P, 2)
+                        val_input = val_data['model_input'] # (B, window, num_feats)
+                        val_input = torch.permute(val_input, (0,2,1)) # (B, num_feats, window)
                         
-                        val_pred = val_pred.unsqueeze(-1) # (B, BLKS//P, 2, 1)
-                        val_pred = val_pred.permute(0,1,3,2) # (B, BLKS//P, 1, 2)
+                        val_pred = self.model(val_input) # (B, 1, window)
+                        val_pred = torch.permute(val_pred, (0, 2, 1)) # (B, window, 1)
                         
-                        # (B, BLKS//P, P, 2)
-                        val_pred = val_pred.repeat(1, 1, self.opt.patch_size, 1)
-                        # (B, BLKS, 2)
-                        val_pred = val_pred.reshape(val_pred.shape[0], self.opt.block_size, 2)
-                        
-                        assert val_pred.shape == val_inference_gt[:,:,:-1].shape, \
-                               f"val_pred {val_pred.shape} and val_inference_gt "\
-                               f"{val_inference_gt.shape} have different shape"
-                        
-                        prec, recall, f1, ap = self._evaluation_metrics(val_pred, 
-                                                                val_inference_gt.to(self.device))
-                        val_loss = self._loss_func(val_pred, val_inference_gt.to(self.device))
+                        prec, recall, f1 = self._evaluation_metrics(val_pred, 
+                                                                val_gt.to(self.device))
+                        val_loss = self._loss_func(val_pred, val_gt.to(self.device))
                         
                         avg_val_f1 += f1
                         avg_val_loss += val_loss
                         avg_val_prec += prec
                         avg_val_recall += recall
-                        avg_val_mAP += ap
-                        
-                        # all_recalls.append(recall.item())
-                        # all_precisions.append(prec.item())
-                        
-                        tmp_gt = val_inference_gt.reshape(-1, 3)
-                        mask = tmp_gt[:,2] != 1
-                        tmp_gt = tmp_gt[mask] # (B*BLKS//P',3)
-                        tmp_pred = val_pred.reshape(-1, 2)[mask] # (B*BLKS//P',2)
-                        all_val_gt.append(tmp_gt.cpu().numpy()) # (B*BLKS//P',3)
-                        all_val_pred.append(tmp_pred.cpu().numpy()) # (B*BLKS//P',2)
                         
                     avg_val_f1 /= self.val_n_batch
                     avg_val_loss /= self.val_n_batch
                     avg_val_prec /= self.val_n_batch
                     avg_val_recall /= self.val_n_batch
-                    avg_val_mAP /= self.val_n_batch
-                    
-                    # pr_auc = auc(all_recalls, all_precisions)
-                    
-                    all_val_gt = np.concatenate(all_val_gt, axis=0)  # (B*BLKS//P',3)
-                    all_val_pred = np.concatenate(all_val_pred, axis=0)  # (B*BLKS//P',2)
                     
                     if self.use_wandb:
                         log_dict = {
@@ -313,21 +258,14 @@ class Trainer(object):
                             "Val/avg_val_f1": avg_val_f1.item(),
                             "Val/avg_val_prec": avg_val_prec.item(),
                             "Val/avg_val_recall": avg_val_recall.item(),
-                            "Val/avg_val_mAP": avg_val_mAP.item(),
                             # "Val/pr_auc": pr_auc,
                         }
                         wandb.log(log_dict, step=step_idx+1)
-                        wandb.log({'precision_recall_curve': 
-                                        wandb.plot.pr_curve(y_true=all_val_gt[:, 1].astype(int),
-                                                            y_probas=all_val_pred,
-                                                            labels=['normal', 'freeze'])},
-                                  step=step_idx+1)
+        
                     MYLOGGER.info(f"avg_val_loss: {avg_val_loss.item():4f}")
                     MYLOGGER.info(f"avg_val_f1: {avg_val_f1.item():4f}")
                     MYLOGGER.info(f"avg_val_prec: {avg_val_prec.item():4f}")
                     MYLOGGER.info(f"avg_val_recall: {avg_val_recall.item():4f}")
-                    MYLOGGER.info(f"avg_val_mAP: {avg_val_mAP.item():4f}")
-                    # MYLOGGER.info(f"pr_auc: {pr_auc.item():4f}")
                 
                 # Log learning rate
                 if self.use_wandb:
@@ -336,19 +274,27 @@ class Trainer(object):
                 
                 if self.save_best_model and avg_val_f1 > best_f1:
                     best_f1 = avg_val_f1
-                    wandb.run.summary['best_f1'] = avg_val_f1.item()
+                    if self.use_wandb:
+                        wandb.run.summary['best_f1'] = avg_val_f1.item()
                     self._save_model(step_idx, base='f1', best=True)
+                    
+                if self.save_best_model and avg_val_prec > best_prec:
+                    best_prec = avg_val_prec
+                    if self.use_wandb:
+                        wandb.run.summary['best_f1'] = avg_val_prec.item()
+                    self._save_model(step_idx, base='prec', best=True)
+                    
+                if self.save_best_model and avg_val_recall > best_recall:
+                    best_recall = avg_val_recall
+                    if self.use_wandb:
+                        wandb.run.summary['best_f1'] = avg_val_recall.item()
+                    self._save_model(step_idx, base='recall', best=True)
                     
                 if self.save_best_model and avg_val_loss < best_loss:
                     best_loss = avg_val_loss
-                    wandb.run.summary['best_loss'] = avg_val_loss.item()
-                    self._save_model(step_idx, base='loss', best=True)
-                    
-                if self.save_best_model and avg_val_mAP > best_mAP:
-                    best_mAP = avg_val_mAP
                     if self.use_wandb:
-                        wandb.run.summary['best_mAP'] = avg_val_mAP.item()
-                    self._save_model(step_idx, base='mAP', best=True)
+                        wandb.run.summary['best_loss'] = avg_val_loss.item()
+                    self._save_model(step_idx, base='loss', best=True)
                     
                 self._save_model(step_idx, base='regular', best=False)
             
@@ -358,7 +304,7 @@ class Trainer(object):
 
 
 def run_train(opt):
-    model = Transformer(opt)
+    model = UNet(len(opt.feats))
     model.to(opt.device)
     trainer = Trainer(model, opt)
     trainer.train()
@@ -418,27 +364,17 @@ def parse_opt():
                                           help='penalize when misclassifying the minor class(fog)')
     
     parser.add_argument('--random_aug', action='store_true', help="randomly augment data")
-    parser.add_argument('--num_feats', type=int, default=len(FEATURES_LIST) - 1, 
+    parser.add_argument('--feats', type=str, nargs='+', default=FEATURES_LIST, 
                                                  help='number of features in raw data')
     
-    parser.add_argument('--block_size', type=int, default=15552)
-    parser.add_argument('--block_stride', type=int, default=15552 // 16) # 972
-    parser.add_argument('--patch_size', type=int, default=18)
-    
-    parser.add_argument('--max_grad_norm', type=float, default=1.0, 
+    parser.add_argument('--window', type=int, default=15552) 
+
+    parser.add_argument('--max_grad_norm', type=float, default=None, 
                                            help="prevent gradient explosion")
 
     #! may need to change if embed annotation
     # parser.add_argument('--fog_model_input_dim', type=int, default=18*(len(FEATURES_LIST)-1))
-    parser.add_argument('--fog_model_input_dim', type=int, default=18*3)
 
-    parser.add_argument('--fog_model_dim', type=int, default=320)
-    parser.add_argument('--fog_model_num_heads', type=int, default=8)
-    parser.add_argument('--fog_model_num_encoder_layers', type=int, default=5)
-    parser.add_argument('--fog_model_num_lstm_layers', type=int, default=2)
-    parser.add_argument('--fog_model_first_dropout', type=float, default=0.1)
-    parser.add_argument('--fog_model_encoder_dropout', type=float, default=0.1)
-    parser.add_argument('--fog_model_mha_dropout', type=float, default=0.0)
     parser.add_argument('--feats_list', type=str, nargs='+', default=FEATURES_LIST)
     
     # file tracker =============================================================

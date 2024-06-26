@@ -43,7 +43,17 @@ single_data_dict(all_kaggle_pd_data.p): {     # already normalized
     ...
 }
 
-kaggle's ( train_dataset_name.p): {
+kaggle (train_window15552.p) {
+    'series_name': series_name,  #                              str
+    'ori_series_name': series_info['ori_filename'], #           str
+    'start_t_idx': start_t_idx, # 0,     15552, ...               int
+    'end_t_idx': end_t_idx,     # 15552, 15552+15552, ...         int
+    'model_input': model_input.cpu(), # (window, num_feats)  torch
+    'gt': gt.cpu(), # (window, 3) one-hot                      torch
+    'inference_gt': inference_gt.cpu(),                      # (window, 3) one-hot
+}
+
+kaggle's ( train_dataset_name.p): { patchfy
     0: {
         'series_name': series_name, # rectified_1_dataset_fog_release
         'ori_series_name': series_info['ori_filename'],

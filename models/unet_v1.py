@@ -5,8 +5,11 @@ import torch.nn.functional as F
 
 # Define the autoencoder model
 class UNet(nn.Module):
-    def __init__(self, size, channel):
+    def __init__(self, channel):
         super(UNet, self).__init__()
+        
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
         
         #* Encoding layers *************************************************************************
         self.e11 = nn.Conv1d(channel, 32, kernel_size=3, padding='same')
@@ -55,55 +58,60 @@ class UNet(nn.Module):
         self.up1 = nn.ConvTranspose1d(64, 512, kernel_size=2, stride=2, padding=0)
         # cat: up1, e12: 512 + 32 = 544
         
-        self.outconv = nn.Conv1d(544, 2, kernel_size=3, padding='same')
+        self.outconv = nn.Conv1d(544, 1, kernel_size=3, padding='same')
 
     def forward(self, x):
+        # x: (B,num_feats,L)
+        
         #* Encoding layers *************************************************************************
-        xe11 = nn.ReLU(self.e11(x))
-        xe12 = nn.ReLU(self.e12(xe11))
+        xe11 = self.relu(self.e11(x))
+        xe12 = self.relu(self.e12(xe11))
         xp1 = self.maxpool1(xe12)
         
-        xe21 = nn.ReLU(self.e21(xp1))
-        xe22 = nn.ReLU(self.e22(xe21))
+        xe21 = self.relu(self.e21(xp1))
+        xe22 = self.relu(self.e22(xe21))
         xp2 = self.maxpool2(xe22)
         
-        xe31 = nn.ReLU(self.e31(xp2))
-        xe32 = nn.ReLU(self.e32(xe31))
+        xe31 = self.relu(self.e31(xp2))
+        xe32 = self.relu(self.e32(xe31))
         xp3 = self.maxpool3(xe32)
         
-        xe41 = nn.ReLU(self.e41(xp3))
-        xe42 = nn.ReLU(self.e42(xe41))
+        xe41 = self.relu(self.e41(xp3))
+        xe42 = self.relu(self.e42(xe41))
         xp4 = self.maxpool4(xe42)
         
-        xe51 = nn.ReLU(self.e51(xp4))
-        xe52 = nn.ReLU(self.e52(xe51))
+        xe51 = self.relu(self.e51(xp4))
+        xe52 = self.relu(self.e52(xe51))
         xp5 = self.maxpool5(xe52)
         
         #* Decoding layers *************************************************************************
-        xd51 = nn.ReLU(self.d51(xp5))
-        xd52 = nn.ReLU(self.d52(xd51))
-        xup5 = nn.ReLU(self.up5(xd52))
-        xup5 = torch.cat([xup5, xe52], dim=-1)
+        xd51 = self.relu(self.d51(xp5))
+        xd52 = self.relu(self.d52(xd51))
+        xup5 = self.relu(self.up5(xd52))
+        xup5 = torch.cat([xup5, xe52], dim=-2)
         
-        xd41 = nn.ReLU(self.d41(xup5))
-        xd42 = nn.ReLU(self.d42(xd41))
-        xup4 = nn.ReLU(self.up4(xd42))
-        xup4 = torch.cat([xup4, xe42], dim=-1)
+        xd41 = self.relu(self.d41(xup5))
+        xd42 = self.relu(self.d42(xd41))
+        xup4 = self.relu(self.up4(xd42))
+        xup4 = torch.cat([xup4, xe42], dim=-2)
         
-        xd31 = nn.ReLU(self.d31(xup4))
-        xd32 = nn.ReLU(self.d32(xd31))
-        xup3 = nn.ReLU(self.up3(xd32))
-        xup3 = torch.cat([xup3, xe32], dim=-1)
+        xd31 = self.relu(self.d31(xup4))
+        xd32 = self.relu(self.d32(xd31))
+        xup3 = self.relu(self.up3(xd32))
+        xup3 = torch.cat([xup3, xe32], dim=-2)
         
-        xd21 = nn.ReLU(self.d21(xup3))
-        xd22 = nn.ReLU(self.d22(xd21))
-        xup2 = nn.ReLU(self.up2(xd22))
-        xup2 = torch.cat([xup2, xe22], dim=-1)
+        xd21 = self.relu(self.d21(xup3))
+        xd22 = self.relu(self.d22(xd21))
+        xup2 = self.relu(self.up2(xd22))
+        xup2 = torch.cat([xup2, xe22], dim=-2)
         
-        xd11 = nn.ReLU(self.d11(xup2))
-        xd12 = nn.ReLU(self.d12(xd11))
-        xup1 = nn.ReLU(self.up1(xd12))
-        xup1 = torch.cat([xup1, xe12], dim=-1)
+        xd11 = self.relu(self.d11(xup2))
+        xd12 = self.relu(self.d12(xd11))
+        xup1 = self.relu(self.up1(xd12))
+        xup1 = torch.cat([xup1, xe12], dim=-2)
         
+        decoding = self.outconv(xup1)
         
-        return 
+        pred = self.sigmoid(decoding)
+        
+        return pred # (B,1,L)
