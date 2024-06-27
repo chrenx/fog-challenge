@@ -27,7 +27,7 @@ class FoGDataset(Dataset):
         self.window = opt.window
         self.random_aug = opt.random_aug
         self.device = opt.device
-        
+        self.preload_gpu = opt.preload_gpu
         self.opt = opt
         
         self.window_data_dict = {}
@@ -37,17 +37,20 @@ class FoGDataset(Dataset):
             if data_folder not in ALL_DATASETS or data_folder not in opt.train_datasets:
                 continue
             
+            full_or_window = f"window{self.window}" if self.window != -1 else "full"
+            
             if self.random_aug:
-                # dname = f"{self.mode}_{data_folder}_blks{self.block_size}_"\
-                #         f"ps{self.patch_size}_randomaug.p"
-                dname = f"{self.mode}_{data_folder}_window{self.window}_randomaug.p"  
+                dname = f"{self.mode}_{data_folder}_{full_or_window}_randomaug.p"  
             else:
-                dname = f"{self.mode}_{data_folder}_window{self.window}_allaug.p"                
+                dname = f"{self.mode}_{data_folder}_{full_or_window}_allaug.p"                
             
             mode_dpath = os.path.join(opt.root_dpath, data_folder, dname)
             
             if not os.path.exists(mode_dpath):
-                self._generate_train_val_data_window(opt.root_dpath, data_folder)
+                if self.window != -1:
+                    self._generate_train_val_data_window(opt.root_dpath, data_folder)
+                else:
+                    self._generate_train_val_data_full(opt.root_dpath, data_folder)
 
             self._load_train_val_data(mode_dpath) 
         
@@ -68,9 +71,17 @@ class FoGDataset(Dataset):
             model_input = value['model_input'] # (window, num_feats)
             
             #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! watch out cuda memory
-            self.window_data_dict[count_key]['model_input'] = model_input.to(self.device)
+            if self.preload_gpu:
+                self.window_data_dict[count_key]['model_input'] = model_input.to(self.device)
+            else:
+                self.window_data_dict[count_key]['model_input'] = model_input
                                                                     
             count_key += 1  
+            
+        if self.preload_gpu:
+            print("All data are preloaded to GPU")
+        else:
+            print("Data will be loaded to gpu during training")
         self.logger.info(f"Finishing loading {dpath}")
       
     def _generate_train_val_data_window(self, root_dpath, dataset_name):
@@ -223,8 +234,8 @@ class FoGDataset(Dataset):
         print(f"----- val seq len: {val_seq_len} -----")
         print()
         
-        train_dname = f"train_{dataset_name}_full_trial_allaug.p"
-        val_dname = f"val_{dataset_name}_full_trial_allaug.p"
+        train_dname = f"train_{dataset_name}_window{self.window}_allaug.p"
+        val_dname = f"val_{dataset_name}_window{self.window}_allaug.p"
         
         if self.random_aug:
             train_dname = f"train_{dataset_name}_window{self.window}_randomaug.p"
@@ -237,6 +248,190 @@ class FoGDataset(Dataset):
         joblib.dump(val_data_dict, open(val_dpath, 'wb'))
         
         self.logger.info(f"Finishing spliting train and val data for {dataset_name}")
+
+    def _generate_train_val_data_full(self, root_dpath, dataset_name):
+        """Generate and store train or val data for one specific dataset.
+        
+        Args:
+            root_dpath: e.g. 'data/rectified_data'
+            dataset_name: e.g. 'dataset_fog_release' or 'kaggle_pd_data'
+        """
+        dpath = os.path.join(root_dpath, dataset_name, f"all_{dataset_name}.p")
+        try:
+            single_data_dict = joblib.load(dpath)
+        except Exception:
+            self.logger.warning(f"{dpath} cannot be loaded.")
+            print(f"\n**** {dpath} cannot be loaded.")
+            return
+        
+        self.logger.info(f"_generate_train_val_data_full_trialGenerate and store train or val data for {dpath}")
+        
+        # find max seq_len
+        total_seq_len = 0
+        max_seq_len = 0
+        for key, value in single_data_dict.items():
+            total_seq_len += value['gt'].shape[0]
+            if value['gt'].shape[0] > max_seq_len:
+                max_seq_len = value['gt'].shape[0]
+        ori_max_seq_len = max_seq_len
+        while max_seq_len % 32 != 0: # cuz maxpool in unet
+            max_seq_len += 1
+        print("------------------")
+        print(f"orig max seq len: {ori_max_seq_len}, revised max seq len: {max_seq_len}")
+        
+        count = 0
+        all_data_dict = {}
+        validation_set = set() # series_name: total 970, pick 100
+        test_set = set()
+        for series_name, series_info in tqdm(single_data_dict.items(), 
+                                             total=len(single_data_dict),
+                                             desc=f"Gen train/val data: {dataset_name}", 
+                                             file=sys.stdout):
+            series_len = len(series_info['gt'])
+
+            # (series_len, num_feats)  e.g. (16641, 9)
+            concate_feat = []
+            
+            for feat in self.feats:
+                if feat == 'Annotation':
+                    continue
+                concate_feat.append(series_info[feat][:, None])
+            
+            concate_feat = torch.cat(concate_feat, dim=1) # (series_len, num_feats)
+            
+            # series_info['gt'] = series_info['gt'].to(self.device)
+            
+            padding_len = max_seq_len - series_len
+            pad_feat = torch.zeros(padding_len, concate_feat.shape[1], device=concate_feat.device)
+            pad_gt = torch.zeros(padding_len, dtype=torch.int8, 
+                                    device=series_info['gt'].device) * 2
+
+            # (T', num_feats)  e.g. (31104, 9)
+            concate_feat = torch.cat([concate_feat, pad_feat], dim=0)
+            
+            # (T',)
+            concate_gt = torch.cat([series_info['gt'], pad_gt], dim=0)
+            
+            
+            # (window, num_feats)
+            model_input = concate_feat.detach().clone()
+            model_input = model_input.to(dtype=torch.float32)
+
+            # (window,)
+            gt = concate_gt.detach().clone() 
+            
+            gt = torch.nn.functional.one_hot(gt.to(torch.int64), num_classes=3)
+                
+            # check if it is valid one hot
+            valid_one_hot = ((gt.sum(dim=1) == 1) & ((gt == 0) | (gt == 1)).all(dim=1)) \
+                                                                            .all().item()
+            assert valid_one_hot, "not valid one hot encoding"
+                
+            # Consider whether this series is included in validation
+            if random.random() < 0.3 and \
+                len(validation_set) < 0.1*len(single_data_dict.keys()):
+                # check if this window includes fog event
+                has_one_in_second_column = (gt[:, 1] == 1).any().item()
+                if has_one_in_second_column:
+                    validation_set.add(count)
+                    
+             # Consider whether this series is included in test set
+            if random.random() < 0.3 and \
+                len(test_set) < 0.03*len(single_data_dict.keys()):
+                # check if this window includes fog event
+                has_one_in_second_column = (gt[:, 1] == 1).any().item()
+                if has_one_in_second_column and count not in validation_set:
+                    test_set.add(count)
+
+            # (window,3)
+            gt = gt.float()
+            # (window,3)
+            inference_gt = gt.detach().clone()
+            
+            added_window = {
+                'series_name': series_name,  #                              str
+                'ori_series_name': series_info['ori_filename'], #           str
+                'model_input': model_input.cpu(), # (window, num_feats)  torch
+                'gt': gt.cpu(), # (window, 3) one-hot                      torch
+                'inference_gt': inference_gt.cpu(),                      # (window, 3) one-hot
+            }
+            all_data_dict[count] = added_window
+            count += 1
+        
+        # Initialize counters and sequence lengths
+        train_count, val_count, test_count = 0, 0, 0
+        train_seq_len, val_seq_len, test_seq_len = 0, 0, 0
+        # Initialize dictionaries for training and validation data
+        train_data_dict = {}
+        val_data_dict = {}
+        test_data_dict = {}
+
+        for key, value in tqdm(all_data_dict.items(),
+                               total=len(all_data_dict.keys()), 
+                               desc="split train val"):
+            
+            if key in validation_set:
+                val_data_dict[val_count] = value
+                val_seq_len += value['model_input'].shape[0]
+                val_count += 1
+            elif key in test_set:
+                test_data_dict[test_count] = value
+                test_seq_len += value['model_input'].shape[0]
+                test_count += 1
+            else:  # training set
+                #* data augmentation ***********************************************
+                model_input = value['model_input'] # (window, num_feats) (15552, 3)
+                ori_dtype = model_input.dtype
+                if self.random_aug:
+                    if random.random() <= 0.5:
+                        # Augment data
+                        model_input = self._augment_data(model_input.cpu().detach().numpy())
+                else: # augment all data
+                    model_input = self._augment_data(model_input.cpu().detach().numpy())
+                    
+                # (window, num_feats)
+                model_input = model_input.to(ori_dtype) 
+                
+                assert model_input.shape == (max_seq_len, len(self.feats)), "incorrect shape"
+
+                value['model_input'] = model_input
+                #*******************************************************************
+                
+                train_data_dict[train_count] = value
+                train_seq_len += value['model_input'].shape[0]
+                train_count += 1
+                
+        print(f"+++++++++++++++++: ")
+        print(f'test_set # example {len(test_set)}:')
+        print(test_set)
+        print(f'validation_set # example {len(validation_set)}:')
+        print(validation_set)
+        print(f'train set # example {len(all_data_dict.keys())-len(validation_set)-len(test_set)}')
+        print()
+        
+        print(f"----- train seq len: {train_seq_len} -----")
+        print(f"----- val seq len: {val_seq_len} -----")
+        print(f"----- test seq len: {test_seq_len} -----")
+        print()
+        
+        train_dname = f"train_{dataset_name}_full_allaug.p"
+        val_dname = f"val_{dataset_name}_full_allaug.p"
+        test_dname = f"test_{dataset_name}_full_allaug.p"
+        
+        if self.random_aug:
+            train_dname = f"train_{dataset_name}_full_randomaug.p"
+            val_dname = f"val_{dataset_name}_full_randomaug.p"
+            test_dname = f"test_{dataset_name}_full_randomaug.p"
+     
+        train_dpath = os.path.join(root_dpath, dataset_name, train_dname)
+        val_dpath = os.path.join(root_dpath, dataset_name, val_dname)
+        test_dpath = os.path.join(root_dpath, dataset_name, test_dname)
+        
+        joblib.dump(train_data_dict, open(train_dpath, 'wb'))
+        joblib.dump(val_data_dict, open(val_dpath, 'wb'))
+        joblib.dump(test_data_dict, open(test_dpath, 'wb'))
+        
+        self.logger.info(f"Finishing spliting train, val, test data for {dataset_name}")
 
     def _augment_data(self, model_input):
         # model_input = model_input.reshape(self.block_size//self.patch_size, 

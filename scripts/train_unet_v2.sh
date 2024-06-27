@@ -1,11 +1,11 @@
-python -m train.train_unet_v1 \
-       --version               1 \
+python -m train.train_unet_v2 \
+       --version               2 \
        --device                2 \
-       --exp_name              unet_v1 \
+       --exp_name              unet_v2 \
        --wandb_pj_name         fog-challenge \
        --entity                chrenx \
        --save_best_model       \
-       --description           "unet bs8 window, kaggle" \
+       --description           "unet bs8 full with mixed precision and grad accum, kaggle" \
        --optimizer             "adam" \
        --seed                  11 \
        --train_datasets        kaggle_pd_data \

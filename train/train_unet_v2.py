@@ -4,11 +4,12 @@ from datetime import datetime
 import torch, wandb
 import numpy as np
 from sklearn.metrics import precision_recall_curve, auc
+from torch.cuda.amp import autocast, GradScaler
 from torch.optim import Adam, AdamW
 from torch.utils import data
 
 from data.fog_dataset import FoGDataset
-from models.unet_v1 import UNet
+from models.unet_v2 import UNet
 from tqdm import tqdm
 from utils.config import ALL_DATASETS, FEATURES_LIST
 from utils.train_util import cycle_dataloader, save_group_args
@@ -40,7 +41,7 @@ class Trainer(object):
         self.cur_step = 0
         self.train_num_steps = opt.train_num_steps
         self.device = opt.device
-        self.bce_loss = torch.nn.BCELoss(reduction='none')
+        self.bce_loss = torch.nn.BCEWithLogitsLoss(reduction='none')
         self.max_grad_norm = opt.max_grad_norm
         self.preload_gpu = opt.preload_gpu
         self.grad_accum_step = opt.grad_accum_step
@@ -181,6 +182,8 @@ class Trainer(object):
         best_recall = 0
         best_loss = float('inf')
 
+        scaler = GradScaler()
+        
         for step_idx in tqdm(range(0, self.train_num_steps), desc="Train"):
             self.model.train()
             
@@ -192,13 +195,22 @@ class Trainer(object):
             
             if not self.preload_gpu:
                 train_input = train_input.to(self.device)
+                
+            # ------ mixed precision
+            with autocast():  # Mixed precision
+                train_pred = self.model(train_input)  # (B, 1, window)
+                train_pred = torch.permute(train_pred, (0, 2, 1))  # (B, window, 1)
 
-            train_pred = self.model(train_input) # (B,1,window)
-            train_pred = torch.permute(train_pred, (0,2,1)) # (B, window, 1)
+                train_loss = self._loss_func(train_pred, train_gt.to(self.device))
+                train_loss = train_loss / self.grad_accum_step
+            scaler.scale(train_loss).backward()
+            # ------ mixed precision -----------
 
-            train_loss = self._loss_func(train_pred, train_gt.to(self.device))
-            train_loss /= self.grad_accum_step
-            train_loss.backward()
+            # train_pred = self.model(train_input) # (B,1,window)
+            # train_pred = torch.permute(train_pred, (0,2,1)) # (B, window, 1)
+            # train_loss = self._loss_func(train_pred, train_gt.to(self.device))
+            # train_loss /= self.grad_accum_step
+            # train_loss.backward()
             
             # check gradients
             parameters = [p for p in self.model.parameters() if p.grad is not None]
@@ -214,9 +226,14 @@ class Trainer(object):
                 if nan_exist:
                     continue
                 if self.max_grad_norm is not None:
+                    scaler.unscale_(self.optimizer)  # Unscale gradients before clipping
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-                self.optimizer.step()
+                # self.optimizer.step()
+                # self.optimizer.zero_grad()
+                scaler.step(self.optimizer)
+                scaler.update()
                 self.optimizer.zero_grad()
+        
             
 
             if self.use_wandb:
