@@ -10,14 +10,14 @@ python -m train.train_unet_v2 \
        --seed                  11 \
        --train_datasets        kaggle_pd_data \
        --feats                 LowerBack_Acc_X LowerBack_Acc_Y LowerBack_Acc_Z \
-       --train_num_steps       1000000 \
-       --batch_size            8 \
+       --train_num_steps       100000 \
+       --batch_size            32 \
        --random_aug            \
        --max_grad_norm         1 \
        --weight_decay          1e-6 \
        --grad_accum_step       1 \
        --window                -1 \
-       --disable_wandb
+    #    --disable_wandb
     #    --preload_gpu \
     #    --disable_wandb         #!!!
     #    --preload_gpu           \      

@@ -218,7 +218,6 @@ class Trainer(object):
                 self.optimizer.step()
                 self.optimizer.zero_grad()
             
-
             if self.use_wandb:
                 log_dict = {
                     "Train/loss": train_loss.item(),

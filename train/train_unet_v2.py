@@ -233,8 +233,6 @@ class Trainer(object):
                 scaler.step(self.optimizer)
                 scaler.update()
                 self.optimizer.zero_grad()
-        
-            
 
             if self.use_wandb:
                 log_dict = {
