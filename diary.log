@@ -3,6 +3,9 @@
     2. kaggle data
 
 
+wind: 6304, train:val:test = 80:10:10
+wind: 6976, train:val:test = 97:10:3
+
 
 single_data_dict(all_dataset_fog_release.p): {     # already normalized
     "rectified_1_dataset_fog_release": {

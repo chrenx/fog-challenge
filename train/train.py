@@ -1,25 +1,25 @@
-import argparse, glob, logging, os, random, shutil
-from datetime import datetime
+import argparse, glob, logging, os
 
 import torch, wandb
 import numpy as np
-from sklearn.metrics import precision_recall_curve, auc
 from torch.optim import Adam, AdamW
 from torch.utils import data
 
 from data.fog_dataset import FoGDataset
-from models.unet_v1 import UNet
 from tqdm import tqdm
 from utils.config import ALL_DATASETS, FEATURES_LIST
-from utils.train_util import cycle_dataloader, save_group_args
+from utils import *
 
 
 MYLOGGER = logging.getLogger()
 
 
 class Trainer(object):
-    def __init__(self, model, opt):
+    def __init__(self, opt):
         super().__init__()
+        
+        self.model = ModelLoader(opt.exp_name, opt).model
+        self.model.to(opt.device)
         
         self.use_wandb = not opt.disable_wandb
         self.save_best_model = opt.save_best_model
@@ -31,11 +31,11 @@ class Trainer(object):
             MYLOGGER.info("Initialize W&B")
             wandb.init(config=opt, project=opt.wandb_pj_name, entity=opt.entity, 
                        name=opt.exp_name, dir=opt.save_dir)
+            opt.wandb = wandb
         
         #* NEW: self.train_dl, self.train_n_batch, self.val_dl, self.val_n_batch
         self._prepare_dataloader(opt) 
 
-        self.model = model
         self.optimizer = None
         self.cur_step = 0
         self.train_num_steps = opt.train_num_steps
@@ -61,19 +61,8 @@ class Trainer(object):
                                                 optimizer=self.optimizer,
                                                 factor=opt.lr_scheduler_factor,
                                                 patience=opt.lr_scheduler_patience)
-
-        MYLOGGER.info(f"---- train n batch: {self.train_n_batch}")
-        MYLOGGER.info(f"---- val n batch: {self.val_n_batch}")
         
-        # tmp = next(iter(self.train_dl))
-        # print(tmp.keys())
-        # print(tmp['model_input'].device)
-        # print(tmp['model_input'].shape)
-        # print(tmp['gt'].device)
-        # print(tmp['gt'].shape)
-        # print(type(tmp['series_name']))
-        # print(type(tmp['start_t_idx']))
-        # exit(0)
+        opt.model_num_params = count_model_parameters(self.model)
         
     def _prepare_dataloader(self, opt):
         MYLOGGER.info("Loading training data ...")
@@ -81,6 +70,8 @@ class Trainer(object):
         self.train_ds = FoGDataset(opt, mode='train')
         
         self.val_ds = FoGDataset(opt, mode='val')
+        
+        self.test_ds = FoGDataset(opt, mode='test')
         
         dl = data.DataLoader(self.train_ds, 
                             batch_size=opt.batch_size, 
@@ -97,6 +88,14 @@ class Trainer(object):
                             num_workers=0)
         self.val_n_batch = len(dl)
         self.val_dl = cycle_dataloader(dl)
+        
+        dl = data.DataLoader(self.test_ds, 
+                            batch_size=opt.batch_size, 
+                            shuffle=False, 
+                            pin_memory=False, 
+                            num_workers=0)
+        self.test_n_batch = len(dl)
+        self.test_dl = cycle_dataloader(dl)
         
     def _save_model(self, step, base, best=False):
         
@@ -176,11 +175,55 @@ class Trainer(object):
         
         return precision, recall, f1
 
+    def _eval_test_data(self, step, base):
+        avg_test_f1, avg_test_loss, avg_test_prec, avg_test_recall = 0.0, 0.0, 0.0, 0.0      
+        self.model.eval()
+        with torch.no_grad():
+            for _ in tqdm(range(self.test_n_batch), desc=f"test data"):
+                test_data = next(self.test_dl) 
+                test_gt = test_data['gt'] # (B, window, 3)
+                
+                test_input = test_data['model_input'] # (B, window, num_feats)
+                
+                if not self.preload_gpu:
+                    test_input = test_input.to(self.device)
+                test_pred = self.model(test_input, training=False) # (B, window, 1)
+                
+                prec, recall, f1 = self._evaluation_metrics(test_pred, 
+                                                        test_gt.to(self.device))
+                test_loss = self._loss_func(test_pred, test_gt.to(self.device))
+                
+                avg_test_f1 += f1
+                avg_test_loss += test_loss
+                avg_test_prec += prec
+                avg_test_recall += recall
+                
+            avg_test_f1 /= self.test_n_batch
+            avg_test_loss /= self.test_n_batch
+            avg_test_prec /= self.test_n_batch
+            avg_test_recall /= self.test_n_batch
+            
+            avg_test_f1 = round(avg_test_f1.item(), 4)
+            avg_test_prec = round(avg_test_prec.item(), 4)
+            avg_test_recall = round(avg_test_recall.item(), 4)
+            avg_test_loss = avg_test_loss.item()
+            
+            MYLOGGER.info(f"avg_test_loss: {avg_test_loss}")
+            MYLOGGER.info(f"avg_test_f1: {avg_test_f1}")
+            MYLOGGER.info(f"avg_test_prec: {avg_test_prec}")
+            MYLOGGER.info(f"avg_test_recall: {avg_test_recall}")
+            
+            if self.use_wandb:
+                wandb.run.summary[f'best_test_f1_from_val_{base} / step'] = [avg_test_f1, step]
+                wandb.run.summary[f'best_test_prec_from_val_{base} / step'] = [avg_test_prec, step]
+                wandb.run.summary[f'best_test_recall_from_val_{base} / step'] = [avg_test_recall, step]
+                wandb.run.summary[f'best_test_loss_from_val_{base} / step'] = [avg_test_loss, step]
+
     def train(self):
-        best_f1 = 0
-        best_prec = 0
-        best_recall = 0
-        best_loss = float('inf')
+        best_val_f1 = 0
+        best_val_prec = 0
+        best_val_recall = 0
+        best_val_loss = float('inf')
 
         for step_idx in tqdm(range(0, self.train_num_steps), desc="Train"):
             self.model.train()
@@ -189,13 +232,11 @@ class Trainer(object):
             train_data = next(self.train_dl)
             train_gt = train_data['gt'] # (B, window, 3) one-hot
             train_input = train_data['model_input'] # (B, window, num_feats)
-            train_input = torch.permute(train_input, (0,2,1)) # (B, C_in, window)
             
             if not self.preload_gpu:
                 train_input = train_input.to(self.device)
 
-            train_pred = self.model(train_input) # (B,1,window)
-            train_pred = torch.permute(train_pred, (0,2,1)) # (B, window, 1)
+            train_pred = self.model(train_input) # (B,window,1)
 
             train_loss = self._loss_func(train_pred, train_gt.to(self.device))
             train_loss /= self.grad_accum_step
@@ -233,7 +274,6 @@ class Trainer(object):
             if (step_idx + 1) % self.train_n_batch == 0: #* an epoch
             # if True:
                 avg_val_f1, avg_val_loss, avg_val_prec, avg_val_recall = 0.0, 0.0, 0.0, 0.0
-                avg_test_f1, avg_test_loss, avg_test_prec, avg_test_recall = 0.0, 0.0, 0.0, 0.0
                 
                 self.model.eval()
                 with torch.no_grad():
@@ -242,12 +282,10 @@ class Trainer(object):
                         val_gt = val_data['gt'] # (B, window, 3)
                         
                         val_input = val_data['model_input'] # (B, window, num_feats)
-                        val_input = torch.permute(val_input, (0,2,1)) # (B, num_feats, window)
-                        
+                                                
                         if not self.preload_gpu:
                             val_input = val_input.to(self.device)
-                        val_pred = self.model(val_input) # (B, 1, window)
-                        val_pred = torch.permute(val_pred, (0, 2, 1)) # (B, window, 1)
+                        val_pred = self.model(val_input, training=False) # (B, window, 1)
                         
                         prec, recall, f1 = self._evaluation_metrics(val_pred, 
                                                                 val_gt.to(self.device))
@@ -283,29 +321,37 @@ class Trainer(object):
                     wandb.log({'learning_rate': self.scheduler_optim.get_last_lr()[0]}, 
                               step=step_idx+1)
                 
-                if self.save_best_model and avg_val_f1 > best_f1:
-                    best_f1 = avg_val_f1
+                if self.save_best_model and avg_val_f1 > best_val_f1:
+                    best_val_f1 = avg_val_f1
+                    tmp = f"{avg_val_f1.item():4f}"
                     if self.use_wandb:
-                        wandb.run.summary['best_f1'] = avg_val_f1.item()
+                        wandb.run.summary['best_val_f1 / step'] = [tmp, step_idx+1]
                     self._save_model(step_idx + 1, base='f1', best=True)
+                    self._eval_test_data(step=step_idx + 1, base='f1')
                     
-                if self.save_best_model and avg_val_prec > best_prec:
-                    best_prec = avg_val_prec
+                if self.save_best_model and avg_val_prec > best_val_prec:
+                    best_val_prec = avg_val_prec
+                    tmp = f"{avg_val_prec.item():4f}"
                     if self.use_wandb:
-                        wandb.run.summary['best_prec'] = avg_val_prec.item()
+                        wandb.run.summary['best_val_prec / step'] = [tmp, step_idx+1]
                     self._save_model(step_idx + 1, base='prec', best=True)
+                    self._eval_test_data(step=step_idx + 1, base='prec')
                     
-                if self.save_best_model and avg_val_recall > best_recall:
-                    best_recall = avg_val_recall
+                if self.save_best_model and avg_val_recall > best_val_recall:
+                    best_val_recall = avg_val_recall
+                    tmp = f"{avg_val_recall.item():4f}"
                     if self.use_wandb:
-                        wandb.run.summary['best_recall'] = avg_val_recall.item()
+                        wandb.run.summary['best_val_recall / step'] = [tmp, step_idx+1]
                     self._save_model(step_idx + 1, base='recall', best=True)
+                    self._eval_test_data(step=step_idx + 1, base='recall')
                     
-                if self.save_best_model and avg_val_loss < best_loss:
-                    best_loss = avg_val_loss
+                if self.save_best_model and avg_val_loss < best_val_loss:
+                    best_val_loss = avg_val_loss
                     if self.use_wandb:
-                        wandb.run.summary['best_loss'] = avg_val_loss.item()
+                        wandb.run.summary['best_val_loss / step'] = [avg_val_loss.item(), 
+                                                                     step_idx+1]
                     self._save_model(step_idx + 1, base='loss', best=True)
+                    self._eval_test_data(step=step_idx + 1, base='loss')
                     
                 self._save_model(step_idx + 1, base='regular', best=False)
             
@@ -319,22 +365,13 @@ class Trainer(object):
         if self.use_wandb:
             wandb.run.finish()
 
-
-def run_train(opt):
-    model = UNet(len(opt.feats))
-    model.to(opt.device)
-    trainer = Trainer(model, opt)
-    trainer.train()
-    torch.cuda.empty_cache()
-
 def parse_opt():
     parser = argparse.ArgumentParser()
     
     # project information: names ===============================================
-    parser.add_argument('--version', type=int, default=None)
     parser.add_argument('--project', default='runs/train', help='project/name')
-    parser.add_argument('--exp_name', default='transfomer_bilstm', 
-                                            help='save to project/name')
+    parser.add_argument('--exp_name', type=str, required=True, 
+                                      help='save to project/name')
     parser.add_argument('--cur_time', default=None, help='Time running this program')
     parser.add_argument('--description', type=str, default=None, help='important notes')
 
@@ -349,9 +386,11 @@ def parse_opt():
                                         help='directory that contains different processed datasets')
     parser.add_argument('--train_datasets', type=str, nargs='+', default=ALL_DATASETS, 
                                        help='provided dataset_name, e.g. kaggle, ...')
+    parser.add_argument('--lab_home', type=str, default="lab", 
+                                       help='lab, lab_home')
     
     # GPU ======================================================================
-    parser.add_argument('--device', default='0', help='assign gpu')
+    parser.add_argument('--cuda_id', default='0', help='assign gpu')
     parser.add_argument('--device_info', type=str, default='')
     
     # training monitor =========================================================
@@ -371,6 +410,7 @@ def parse_opt():
     parser.add_argument('--adam_betas', default=(0.9, 0.98), help='betas for Adam optimizer')
     parser.add_argument('--adam_eps', default=1e-9, help='epsilon for Adam optimizer')
     parser.add_argument('--weight_decay', type=float, default=0, help='for adam optimizer')
+    parser.add_argument('--lr_scheduler', type=str, default='ReduceLROnPlateau')
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.1, help='lr scheduler')
     parser.add_argument('--lr_scheduler_patience', type=int, default=20, help='for adam optimizer')
     parser.add_argument('--lr_scheduler_warmup_steps', type=int, default=64, help='lr scheduler')
@@ -394,6 +434,15 @@ def parse_opt():
     parser.add_argument('--preload_gpu', action='store_true', help="preload all data to gpu")
     parser.add_argument('--disable_scheduler', action='store_true', help="no adaptive lr")
     
+    parser.add_argument('--fog_model_input_dim', type=int, default=3)
+    parser.add_argument('--fog_feat_dim', type=int, default=512)
+    parser.add_argument('--fog_model_num_heads', type=int, default=8)
+    parser.add_argument('--fog_model_num_encoder_layers', type=int, default=5)
+    parser.add_argument('--fog_model_num_lstm_layers', type=int, default=2)
+    parser.add_argument('--fog_model_first_dropout', type=float, default=0.1)
+    parser.add_argument('--fog_model_encoder_dropout', type=float, default=0.1)
+    parser.add_argument('--fog_model_mha_dropout', type=float, default=0.0)
+    
     #! may need to change if embed annotation
     # parser.add_argument('--fog_model_input_dim', type=int, default=18*(len(FEATURES_LIST)-1))
 
@@ -404,74 +453,33 @@ def parse_opt():
     parser.add_argument('--weights_dir', type=str, default='')
 
     opt = parser.parse_args()
+    
+    cur_time = get_cur_time()
+    opt.save_dir = os.path.join(opt.project, opt.exp_name, cur_time)
+    opt.cur_time = cur_time
+    opt.weights_dir = os.path.join(opt.save_dir, 'weights')
+    opt.codes_dir = os.path.join(opt.save_dir, 'codes')
+    opt.device_info = torch.cuda.get_device_name(int(opt.cuda_id)) 
+    opt.device = f"cuda:{opt.cuda_id}"
         
     return opt
 
 if __name__ == "__main__":
-    
     assert torch.cuda.is_available(), "**** No available GPUs."
-    
     opt = parse_opt()
+    create_training_folders(opt)
+    save_codes(opt)
+    set_seed(opt)
     
-    assert opt.version is not None, "pass the version parameter"
+    ######
+    trainer = Trainer(opt)
     
-    cur_time = datetime.now()
-    cur_time = '{:%Y_%m_%d_%H:%M:%S}.{:02.0f}'.format(cur_time, 
-                                                      cur_time.microsecond / 10000.0)
-
-    opt.save_dir = os.path.join(opt.project, opt.exp_name, cur_time)
-    opt.cur_time = cur_time
-
-    random.seed(opt.seed)
-    np.random.seed(opt.seed)
-    torch.manual_seed(opt.seed)
-
-    # Create dir
-    os.makedirs(opt.save_dir, exist_ok=True)
-
-    # Save some important code
-    source_files = [f'train/train_unet_v{opt.version}.py', 
-                    f'utils/train_util.py', 'utils/config.py',
-                    f'data/fog_dataset.py',
-                    f'models/unet_v{opt.version}.py']
-    codes_dest = os.path.join(opt.save_dir, 'codes')
-    os.makedirs(codes_dest)
-    for file_dir in source_files:
-        shutil.copy2(file_dir, codes_dest)
-        
-    # Create weight dir to store model weights
-    opt.weights_dir = os.path.join(opt.save_dir, 'weights')
-    os.makedirs(opt.weights_dir, exist_ok=True)
+    print_initial_info(opt, model=trainer.model)
+    print_initial_info(opt, redirect_file="model_info.log", model=trainer.model)
     
-    training_info_log_path = os.path.join(opt.save_dir,"training_info.log")
-    # redirect all printing to a file
-    if not opt.disable_wandb:
-        import sys
-        sys.stdout = open(training_info_log_path, "w")
-        logging.basicConfig(filename=os.path.join(training_info_log_path),
-                        filemode='a',
-                        format='%(asctime)s.%(msecs)02d %(levelname)s %(message)s',
-                        datefmt='%Y-%m-%d-%H:%M:%S',
-                        level=os.environ.get("LOGLEVEL", "INFO"))
-    else:
-        logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
-    
-    if opt.device != 'cpu':
-        opt.device_info = torch.cuda.get_device_name(int(opt.device)) 
-        opt.device = f"cuda:{opt.device}"
-    else:
-        MYLOGGER.warning("!!!!!!!! Running on CPU.")
-
-    MYLOGGER.setLevel(logging.INFO)
-    MYLOGGER.info(f"Running at {cur_time}")
-    MYLOGGER.info(f"Using device: {opt.device}")
-    
-    if opt.description is not None:
-        MYLOGGER.info(f"-------- Job Description: --------\n{opt.description}")
+    set_redirect_printing(opt)
     
     save_group_args(opt)
     
-    opt.mylogger = MYLOGGER
-
-    run_train(opt)
-
+    trainer.train()
+    torch.cuda.empty_cache()
