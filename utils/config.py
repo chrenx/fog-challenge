@@ -1,4 +1,4 @@
-ALL_DATASETS = ['dataset_fog_release', 'kaggle_pd_data']
+ALL_DATASETS = ['daphnet', 'kaggle_pd_data_defog', 'kaggle_pd_data_tdcsfog', 'turn_in_place']
 
 VALIDATION_SET = ["rectified_5_dataset_fog_release", 
                   "rectified_14_dataset_fog_release"]
@@ -23,10 +23,10 @@ VALIDATION_SET_kaggle = ['rectified_7_kaggle_pd_data',
                          'rectified_51_kaggle_pd_data']
 
 
-FEATURES_LIST = ['Annotation',
-                 'L_Ankle_Acc_X', 'L_Ankle_Acc_Y', 'L_Ankle_Acc_Z', 
-                 'L_MidLatThigh_Acc_X', 'L_MidLatThigh_Acc_Y', 'L_MidLatThigh_Acc_Z',
-                 'LowerBack_Acc_X', 'LowerBack_Acc_Y', 'LowerBack_Acc_Z']
+FEATURES_LIST = ['lowerback_acc', 'l_midlatthigh_acc',
+                 'l_latshank_acc', 'r_latshank_acc',
+                 'l_latshank_gyr', 'r_latshank_gyr',
+                 'l_ankle_acc']
 
 PHASE2_DATA_HEAD = [
     'Time',

@@ -10,6 +10,7 @@ import torch
 import numpy as np
 import pandas as pd
 from scipy.constants import physical_constants
+from scipy.constants import degree
 from tqdm import tqdm
 
 from utils import config
@@ -406,8 +407,76 @@ def process_kaggle_pd_data():
     df = pd.DataFrame.from_dict(gt_df, orient='columns')
     df.to_csv(os.path.join(rectified_train_path, "gt_kaggle_pd_data.csv"), index=False)
 
+def process_turn_in_place():
+    pdfeinfo = pd.read_csv('data/turn_in_place/pdfeinfo.csv')
+    dpath = 'data/turn_in_place/IMU'
+    all_txt_files = [file for file in os.listdir(dpath) \
+                    if file.endswith('txt') and not file.endswith('standing.txt')]
 
+    all_data = {}
+    count = 0
+    physical_const = physical_constants['standard acceleration of gravity'][0]
+    for txt_file in tqdm(all_txt_files, total=len(all_txt_files)):
+        count += 1
+        subject_id = txt_file[3:5]
+        session_num = txt_file[6]
+        row = pdfeinfo[pdfeinfo['id'] == f'pdfe{subject_id}']
+        l_or_r = 'L' if row.iloc[0]['more_affected_side'] == 'left' else 'right'
+        tug_time = row.iloc[0][f's{session_num}_tug_sec']
+        tug_dual_time = row.iloc[0][f's{session_num}_tug_dual_sec']
 
+        frame_idx = []
+        event = []
+        acc_ml, acc_ap, acc_si = [], [], []
+        gyr_ml, gyr_ap, gyr_si = [], [], []
+        gt = []
+        
+        with open(os.path.join(dpath, txt_file), 'r') as file:
+            all_lines = file.readlines()
+            
+            for line in all_lines[1:]:
+                values = line.strip().split('\t')
+                annotation = 'turn in place' if float(values[1]) >= tug_time else 'unlabeled'
+                annotation = 'turn in place with additional tasks' \
+                                    if float(values[1]) >= tug_dual_time else annotation
+    
+                frame_idx.append(int(values[0]))
+                event.append(annotation)
+                # g --> m/s^2
+                acc_ml.append(float(values[2]) * physical_const)
+                acc_ap.append(float(values[3]) * physical_const)
+                acc_si.append(float(values[4]) * physical_const)
+                gyr_ml.append(float(values[5]) * degree)
+                gyr_ap.append(float(values[6]) * degree)
+                gyr_si.append(float(values[7]) * degree)
+                
+                gt.append(int(values[8]))
+                
+                # print(acc_x[-1], acc_z[-1], acc_y[-1])
+                # print(gyr_x[-1], gyr_z[-1], gyr_y[-1])
+                # break
+            
+            # print(torch.tensor(acc_x)[:3])
+            all_data[f'rectified_{count}_turn_in_place'] = {
+                'ori_filename':txt_file,
+                'frame_idx': torch.tensor(frame_idx), 
+                'event': np.array(event), 
+                f'{l_or_r}_LatShank_Acc_AP': sample_normalize(torch.tensor(acc_ap), dtype=torch.float32),
+                f'{l_or_r}_LatShank_Acc_SI': sample_normalize(torch.tensor(acc_si), dtype=torch.float32),
+                f'{l_or_r}_LatShank_Gyr_ML': sample_normalize(torch.tensor(gyr_ml), dtype=torch.float32),
+                f'{l_or_r}_LatShank_Gyr_AP': sample_normalize(torch.tensor(gyr_ap), dtype=torch.float32),
+                f'{l_or_r}_LatShank_Gyr_SI': sample_normalize(torch.tensor(gyr_si), dtype=torch.float32),
+                'gt': torch.tensor(gt, dtype=torch.float32),
+            }
+            
+            # print(all_data[f'rectified_{count}_turn_in_place'].keys())
+            # print(all_data[f'rectified_{count}_turn_in_place']['ori_filename'])
+            # print(all_data[f'rectified_{count}_turn_in_place']['event'].shape)
+            # print(all_data[f'rectified_{count}_turn_in_place'][f'{l_or_r}_LatShank_Acc_X'].shape)
+            # print(all_data[f'rectified_{count}_turn_in_place'][f'{l_or_r}_LatShank_Acc_X'].dtype)
+        joblib.dump(all_data, open(os.path.join('data/rectified_data/turn_in_place', 
+                                                    f"all_turn_in_place.p"), 'wb'))
+    
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--datasets', type=str, nargs='+', default=config.ALL_DATASETS, 
@@ -426,6 +495,9 @@ if __name__ == "__main__":
                 # process_kaggle_pd_data()
                 make_single_data_2(dpath='data/rectified_data/kaggle_pd_data', 
                                  dataset_name="kaggle_pd_data")
+                pass
+            case 'turn_in_place':
+                process_turn_in_place()
                 pass
             case _:
                 print(f"**** {dataset} dataset doesn\'t exist")

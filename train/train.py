@@ -80,6 +80,7 @@ class Trainer(object):
                             num_workers=0)
         self.train_n_batch = len(dl) 
         self.train_dl = cycle_dataloader(dl)
+        opt.train_n_batch = self.train_n_batch
         
         dl = data.DataLoader(self.val_ds, 
                             batch_size=opt.batch_size, 
@@ -88,6 +89,7 @@ class Trainer(object):
                             num_workers=0)
         self.val_n_batch = len(dl)
         self.val_dl = cycle_dataloader(dl)
+        opt.val_n_batch = self.val_n_batch
         
         dl = data.DataLoader(self.test_ds, 
                             batch_size=opt.batch_size, 
@@ -96,6 +98,7 @@ class Trainer(object):
                             num_workers=0)
         self.test_n_batch = len(dl)
         self.test_dl = cycle_dataloader(dl)
+        opt.test_n_batch = self.test_n_batch
         
     def _save_model(self, step, base, best=False):
         
@@ -183,11 +186,17 @@ class Trainer(object):
                 test_data = next(self.test_dl) 
                 test_gt = test_data['gt'] # (B, window, 3)
                 
-                test_input = test_data['model_input'] # (B, window, num_feats)
+                test_input = {}    
+                for idx, body_name in test_data['idx_feats'].items():
+                    # (BS, window, 3)
+                    test_input[body_name[0]] = test_data[body_name[0]]
+                    
+                    if not self.preload_gpu:
+                        test_input[body_name[0]] = test_input[body_name[0]].to(self.device)
+
+                test_input['event'] = test_data['event'] # (bs)
                 
-                if not self.preload_gpu:
-                    test_input = test_input.to(self.device)
-                test_pred = self.model(test_input, training=False) # (B, window, 1)
+                test_pred = self.model(test_input) # (B, window, 1)
                 
                 prec, recall, f1 = self._evaluation_metrics(test_pred, 
                                                         test_gt.to(self.device))
@@ -230,14 +239,32 @@ class Trainer(object):
             
             #* training part -----------------------------------------------------------------------
             train_data = next(self.train_dl)
-            train_gt = train_data['gt'] # (B, window, 3) one-hot
-            train_input = train_data['model_input'] # (B, window, num_feats)
             
-            if not self.preload_gpu:
-                train_input = train_input.to(self.device)
+            # print(train_data.keys())
+            # print(train_data['idx_feats'].keys())
+            # print(len(train_data['idx_feats']))
+            # print(train_data['lowerback_acc'].shape)
+            # print(len(train_data['event']))
+            # print(len(train_data['event'][0]))
+            # exit(0)
+            
+            train_gt = train_data['gt'] # (B, window, 3) one-hot        
+            train_input = {}    
+            for idx, body_name in train_data['idx_feats'].items():
+                # (BS, window, 3)
+                train_input[body_name[0]] = train_data[body_name[0]]
+                
+                if not self.preload_gpu:
+                    train_input[body_name[0]] = train_input[body_name[0]].to(self.device)
 
+            # train_input['event'] = [list(i) for i in zip(*train_data['event'])]
+            # train_input['event'] = [list(tup) for tup in train_data['event']] # (window, bs)
+            
+            train_input['event'] = train_data['event']
+            
             train_pred = self.model(train_input) # (B,window,1)
-
+            
+            
             train_loss = self._loss_func(train_pred, train_gt.to(self.device))
             train_loss /= self.grad_accum_step
             train_loss.backward()
@@ -256,7 +283,13 @@ class Trainer(object):
                 if nan_exist:
                     continue
                 if self.max_grad_norm is not None:
+                    # parameters = [p for p in self.model.parameters() if p.grad is not None]
+                    # print("before clipping")
+                    # print(parameters[0].shape)
+                    # print(parameters[0])
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                    # parameters = [p for p in self.model.parameters() if p.grad is not None]
+  
                 self.optimizer.step()
                 self.optimizer.zero_grad()
             
@@ -271,7 +304,7 @@ class Trainer(object):
                 
             #* validation part ---------------------------------------------------------------------
             cur_epoch = (step_idx + 1) // self.train_n_batch
-            if (step_idx + 1) % self.train_n_batch == 0: #* an epoch
+            if not self.use_wandb or (step_idx + 1) % self.train_n_batch == 0: #* an epoch
             # if True:
                 avg_val_f1, avg_val_loss, avg_val_prec, avg_val_recall = 0.0, 0.0, 0.0, 0.0
                 
@@ -281,11 +314,17 @@ class Trainer(object):
                         val_data = next(self.val_dl) 
                         val_gt = val_data['gt'] # (B, window, 3)
                         
-                        val_input = val_data['model_input'] # (B, window, num_feats)
-                                                
-                        if not self.preload_gpu:
-                            val_input = val_input.to(self.device)
-                        val_pred = self.model(val_input, training=False) # (B, window, 1)
+                        val_input = {}    
+                        for idx, body_name in val_data['idx_feats'].items():
+                            # (BS, window, 3)
+                            val_input[body_name[0]] = val_data[body_name[0]]
+                            
+                            if not self.preload_gpu:
+                                val_input[body_name[0]] = val_input[body_name[0]].to(self.device)
+
+                        val_input['event'] = val_data['event'] # (bs)
+                        
+                        val_pred = self.model(val_input) # (B, window, 1)
                         
                         prec, recall, f1 = self._evaluation_metrics(val_pred, 
                                                                 val_gt.to(self.device))
@@ -424,7 +463,7 @@ def parse_opt():
     parser.add_argument('--feats', type=str, nargs='+', default=FEATURES_LIST, 
                                                  help='number of features in raw data')
     
-    parser.add_argument('--window', type=int, default=15552, help="-1 means using full trial") 
+    parser.add_argument('--window', type=int, default=1024, help="-1 means using full trial") 
 
     parser.add_argument('--max_grad_norm', type=float, default=None, 
                                            help="prevent gradient explosion")
@@ -435,18 +474,23 @@ def parse_opt():
     parser.add_argument('--disable_scheduler', action='store_true', help="no adaptive lr")
     
     parser.add_argument('--fog_model_input_dim', type=int, default=3)
-    parser.add_argument('--fog_feat_dim', type=int, default=512)
-    parser.add_argument('--fog_model_num_heads', type=int, default=8)
-    parser.add_argument('--fog_model_num_encoder_layers', type=int, default=5)
-    parser.add_argument('--fog_model_num_lstm_layers', type=int, default=2)
+    parser.add_argument('--fog_model_feat_dim', type=int, default=250)
+    parser.add_argument('--fog_model_nheads', type=int, default=10)
+    parser.add_argument('--fog_model_nlayers', type=int, default=5)
+    parser.add_argument('--fog_model_lstm_nlayers', type=int, default=2)
     parser.add_argument('--fog_model_first_dropout', type=float, default=0.1)
     parser.add_argument('--fog_model_encoder_dropout', type=float, default=0.1)
     parser.add_argument('--fog_model_mha_dropout', type=float, default=0.0)
     
+    parser.add_argument('--clip_dim', type=int, default=512)
+    parser.add_argument('--clip_version', type=str, default='ViT-B/32')
+    parser.add_argument('--activation', type=str, default='gelu')
+    parser.add_argument('--txt_cond', action='store_true', help="give text as condition")
+    
     #! may need to change if embed annotation
     # parser.add_argument('--fog_model_input_dim', type=int, default=18*(len(FEATURES_LIST)-1))
 
-    parser.add_argument('--feats_list', type=str, nargs='+', default=FEATURES_LIST)
+    # parser.add_argument('--feats_list', type=str, nargs='+', default=FEATURES_LIST)
     
     # file tracker =============================================================
     parser.add_argument('--save_dir', type=str, default='')
@@ -466,6 +510,9 @@ def parse_opt():
 
 if __name__ == "__main__":
     assert torch.cuda.is_available(), "**** No available GPUs."
+    
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+    
     opt = parse_opt()
     create_training_folders(opt)
     save_codes(opt)

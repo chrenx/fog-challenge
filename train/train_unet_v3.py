@@ -414,6 +414,8 @@ def parse_opt():
                                         help='directory that contains different processed datasets')
     parser.add_argument('--train_datasets', type=str, nargs='+', default=ALL_DATASETS, 
                                        help='provided dataset_name, e.g. kaggle, ...')
+    parser.add_argument('--lab_home', type=str, default="lab", 
+                                       help='lab, lab_home')
     
     # GPU ======================================================================
     parser.add_argument('--device', default='0', help='assign gpu')

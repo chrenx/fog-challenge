@@ -1,12 +1,208 @@
-可调整的东西:
-    1. 尝试不要overlap windows
-    2. kaggle data
+Dataset:
+fda_challenge:
+    no gender
+    missing data with nan
+    csv file for each trial
+
+turn_in_place: https://www.frontiersin.org/journals/neuroscience/articles/10.3389/fnins.2022.832463/full
+    includes:       demographics, clinical condition, kinematics (video, acceleration, and angular velocity)
+    medication:     ON 
+    sensor:         IMU: a triaxial gyroscope (angular position rate sensor) and a triaxial accelerometer (acceleration sensor)
+    location:       shank of most affected body side
+    coordinate:     Sensor-Fixed Coordinates
+        y-axis was approximately vertical, and the positive direction pointed downward 向下
+        z-axis was approximately horizontal (anteroposterior direction), the positive direction pointed forward 向前
+        x-axis direction was determined by the right-hand rule (mediolateral direction) 向右
+    event:          turn in place
+    lab or home:    lab
+    ACC ML [g]	ACC AP [g]	ACC SI [g]	GYR ML [deg/s]	GYR AP [deg/s]	GYR SI [deg/s]
+
+kaggle_pd_data: https://www.kaggle.com/competitions/tlvmc-parkinsons-freezing-gait-prediction/data
+    event:          StartHesitation, Turn, Walking
+    lab or home:    lab + home
+    location:       lowerback
+    coordinate:     sensor-fixed coordinates
+        V: y
+        AP: z
+        ML: x
 
 
 wind: 6304, train:val:test = 80:10:10
 wind: 6976, train:val:test = 97:10:3
 
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True ./scripts/train.sh
 
+
+
+daphnet:-----------------
+        train n trials : 13
+        train seq len  : 778240
+        train n window : 760
+
+        val n trials   : 2
+        val seq len    : 207872
+        val n window   : 203
+
+        test n trials  : 2
+        test seq len   : 148480
+        test n window  : 145
+
+kaggle_pd_data_defog:-----------------
+        train n trials : 76
+        train seq len  : 2427904
+        train n window : 2371
+
+        val n trials   : 10
+        val seq len    : 409600
+        val n window   : 400
+
+        test n trials  : 5
+        test seq len   : 135168
+        test n window  : 132
+
+kaggle_pd_data_tdcsfog:-----------------  
+        train n trials : 665
+        train seq len  : 5309440
+        train n window : 5185
+
+        val n trials   : 84
+        val seq len    : 849920
+        val n window   : 830
+
+        test n trials  : 84
+        test seq len   : 726016
+        test n window  : 709
+
+turn_in_place:-----------------
+        train n trials : 55
+        train seq len  : 844800
+        train n window : 825
+
+        val n trials   : 8
+        val seq len    : 122880
+        val n window   : 120
+
+        test n trials  : 8
+        test seq len   : 122880
+        test n window  : 120
+
+TOTAL -------------------------
+        train n trials : 809
+        train seq len  : 9360384
+        train n window : 9141
+
+        val n trials   : 104
+        val seq len    : 1590272
+        val n window   : 1553
+
+        test n trials  : 99
+        test seq len   : 1132544
+        test n window  : 1106
+
+====================================================================================================
+train val test:
+ 0 {
+        'series_name': series_name,  #                           str
+        'ori_filename': series_info['ori_filename'], #           str
+        'start_t_idx': start_t_idx, # 0,     15552, ...               int
+        'end_t_idx': end_t_idx,     # 15552, 15552+15552, ...         int
+        'idx_feats': self.idx_feats, # {0: 'lowerback_acc', ...}
+        'event': ['some event', ...] (window,)   ====> data loader: [('event', ..), ...] seq_len, bs
+                                                                len(train_data['event']) = window
+                                                                len(train_data['event'][0]) = bs
+                    # 'model_input': model_input.cpu(), # (window, num_feats)  torch
+        'lowerback': (window, 3)
+        ....
+        'gt': gt.cpu(), # (window, 3) one-hot                      torch
+    }
+
+====================================================================================================
+71 个 trials, 71 keys
+data/rectified_data/turn_in_place/all_turn_in_place.p { # already normalized
+    'rectified_1_turn_in_place': {
+        'ori_filename':txt_file,                                    
+        'frame_idx': torch.tensor(frame_idx),                                   (N,)
+        'event': np.array(event),                                               (N,)
+        f'{l_or_r}_LatShank_Acc_ML': sample_normalize(torch.tensor(acc_ml)),    (N,)
+        f'{l_or_r}_LatShank_Acc_AP': sample_normalize(torch.tensor(acc_ap)),    (N,)
+        f'{l_or_r}_LatShank_Acc_SI': sample_normalize(torch.tensor(acc_si)),    (N,)
+        f'{l_or_r}_LatShank_Gyr_ML': sample_normalize(torch.tensor(gyr_ml)),    (N,)
+        f'{l_or_r}_LatShank_Gyr_AP': sample_normalize(torch.tensor(gyr_ap)),    (N,)
+        f'{l_or_r}_LatShank_Gyr_SI': sample_normalize(torch.tensor(gyr_si)),    (N,)
+        'gt': torch.tensor(gt),                                                 (N,) # 0 or 1
+    }
+}
+
+833 个 trials, 833 keys
+data/rectified_data/all_data/all_kaggle_pd_data_tdcsfog.p { # already normalized
+    'rectified_1_kaggle_pd_data' :{
+        'ori_filename': f"{lab_home}_" + csv_file,
+        'event': df['event'].to_numpy(),                                           (N,)
+        'LowerBack_Acc_V': sample_normalize(torch.tensor(df['AccV'].to_numpy(),    (N,) 
+                                                            dtype=torch.float32)),
+        'LowerBack_Acc_ML': sample_normalize(torch.tensor(df['AccML'].to_numpy(),  (N,) 
+                                                            dtype=torch.float32)),
+        'LowerBack_Acc_AP': sample_normalize(torch.tensor(df['AccAP'].to_numpy(),  (N,)  
+                                                            dtype=torch.float32)),
+        'gt': torch.tensor(df['gt'].to_numpy(), dtype=torch.float32),              (N,) # 0 or 1
+    }
+}
+
+91 个 trials, 1027 keys
+data/rectified_data/all_data/all_kaggle_pd_data_defog.p { # already normalized
+    'rectified_1_kaggle_pd_data' :{
+        'ori_filename': f"{lab_home}_" + csv_file,
+        'event': event, 
+        'LowerBack_Acc_V': sample_normalize(torch.tensor(df['AccV'].to_numpy(), 
+                                                         dtype=torch.float32) * physical_const),
+        'LowerBack_Acc_ML': sample_normalize(torch.tensor(df['AccML'].to_numpy(), 
+                                                          dtype=torch.float32) * physical_const),
+        'LowerBack_Acc_AP': sample_normalize(torch.tensor(df['AccAP'].to_numpy(), 
+                                                          dtype=torch.float32) * physical_const),
+        'gt': torch.tensor(df['gt'].to_numpy(), dtype=torch.float32),
+    }
+}
+
+17 个 trials, 35 keys
+data/rectified_data/all_data/all_daphnet.p {    # already normalized
+        'ori_filename':txt_file,
+        'event': np.array(event), 
+        'L_Ankle_Acc_AP': sample_normalize(torch.tensor(ankle_acc_ap, dtype=torch.float32)),
+        'L_Ankle_Acc_V': sample_normalize(torch.tensor(ankle_acc_v, dtype=torch.float32)),
+        'L_Ankle_Acc_ML': sample_normalize(torch.tensor(ankle_acc_ml, dtype=torch.float32)),
+        'L_MidLatThigh_Acc_AP': sample_normalize(torch.tensor(mid_thigh_acc_ap, dtype=torch.float32)),
+        'L_MidLatThigh_Acc_V': sample_normalize(torch.tensor(mid_thigh_acc_v, dtype=torch.float32)),
+        'L_MidLatThigh_Acc_ML': sample_normalize(torch.tensor(mid_thigh_acc_ml, dtype=torch.float32)),
+        'LowerBack_Acc_AP': sample_normalize(torch.tensor(lowerback_acc_ap, dtype=torch.float32)),
+        'LowerBack_Acc_V': sample_normalize(torch.tensor(lowerback_acc_v, dtype=torch.float32)),
+        'LowerBack_Acc_ML': sample_normalize(torch.tensor(lowerback_acc_ml, dtype=torch.float32)),
+        'gt': torch.tensor(gt, dtype=torch.float32),
+    }
+
+====================================================================================================
+data/rectified_data/kaggle_pd_data/all_kaggle_pd_data.p: {     # already normalized
+    "rectified_1_kaggle_pd_data": {
+        'ori_filename': 'rectified_1_kaggle_pd_data_defog'
+        'gt': (N,)     torch.int8    # 0 = no freeze, 1 = freeze, 2 = out of experiment
+        'Annotation': (N,)          numpy
+        'LowerBack_Acc_X': (N,)     torch
+        'LowerBack_Acc_Y': (N,)     torch
+        'LowerBack_Acc_Z': (N,)     torch
+    },
+    ...
+}
+
+kaggle (train_window15552.p) {
+    'series_name': series_name,  #                              str
+    'ori_series_name': series_info['ori_filename'], #           str
+    'start_t_idx': start_t_idx, # 0,     15552, ...               int
+    'end_t_idx': end_t_idx,     # 15552, 15552+15552, ...         int
+    'model_input': model_input.cpu(), # (window, num_feats)  torch
+    'gt': gt.cpu(), # (window, 3) one-hot                      torch
+    'inference_gt': inference_gt.cpu(),                      # (window, 3) one-hot
+}
+
+====================================================================================================
 single_data_dict(all_dataset_fog_release.p): {     # already normalized
     "rectified_1_dataset_fog_release": {
         'event': 
@@ -34,39 +230,10 @@ dataset_fog_release(all train_dataset_name.p): {
     }
 }
 
-single_data_dict(all_kaggle_pd_data.p): {     # already normalized
-    "rectified_1_kaggle_pd_data": {
-        'ori_filename': 'rectified_1_kaggle_pd_data_defog'
-        'gt': (N,)     torch.int8    # 0 = no freeze, 1 = freeze, 2 = out of experiment
-        'Annotation': (N,)          numpy
-        'LowerBack_Acc_X': (N,)     torch
-        'LowerBack_Acc_Y': (N,)     torch
-        'LowerBack_Acc_Z': (N,)     torch
-    },
-    ...
-}
+====================================================================================================
 
-kaggle (train_window15552.p) {
-    'series_name': series_name,  #                              str
-    'ori_series_name': series_info['ori_filename'], #           str
-    'start_t_idx': start_t_idx, # 0,     15552, ...               int
-    'end_t_idx': end_t_idx,     # 15552, 15552+15552, ...         int
-    'model_input': model_input.cpu(), # (window, num_feats)  torch
-    'gt': gt.cpu(), # (window, 3) one-hot                      torch
-    'inference_gt': inference_gt.cpu(),                      # (window, 3) one-hot
-}
+====================================================================================================
 
-kaggle's ( train_dataset_name.p): { patchfy
-    0: {
-        'series_name': series_name, # rectified_1_dataset_fog_release
-        'ori_series_name': series_info['ori_filename'],
-        'start_t_idx': start_t_idx, # 0,     972, ...
-        'end_t_idx': end_t_idx,     # 15552, 16524, ...
-        'model_input': (BLKS//P, P*num_feats) (864, 18*3)
-        'gt': # (BLKS//P, 3) one-hot
-        'inference_gt': # (BLKS, 3) one-hot
-    }
-}
 
 
 

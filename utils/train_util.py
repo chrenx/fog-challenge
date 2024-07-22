@@ -29,6 +29,18 @@ def rotateC(image,theta,a,b,c): ## theta: angle, a, b, c, eular vector
     return imagenew
 #* ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+def is_valid_one_hot(matrix):
+    # Check if the matrix has shape (N, 3)
+    if matrix.size(1) != 3:
+        return False
+
+    # Check if each row has exactly one '1' and the rest '0'
+    for row in matrix:
+        if torch.sum(row) != 1 or not torch.all((row == 0) | (row == 1)):
+            return False
+
+    return True
+
 def count_model_parameters(model): 
     return sum(p.numel() for p in model.parameters() if p.requires_grad) 
 
@@ -67,8 +79,12 @@ def print_initial_info(opt, redirect_file=None, model=None):
         print(f"Val dname:       {opt.val_dname}")
         print(f"Test dname:      {opt.test_dname}")
         print(f"Train n trials:  {opt.train_n_trials}")
+        print(f"Train n batch:   {opt.train_n_batch}")
         print(f"Val n trials:    {opt.val_n_trials}")
+        print(f"Val n batch:     {opt.val_n_batch}")
         print(f"Test n trials:   {opt.test_n_trials}")
+        print(f"Test n batch:    {opt.test_n_batch}")
+        print(f"Window:          {opt.window}")
         print()
         print(f"--------------------- {opt.exp_name} ---------------------")
         print(f"# of params:  {opt.model_num_params}")
@@ -82,7 +98,6 @@ def print_initial_info(opt, redirect_file=None, model=None):
     
     sys.stdout = sys.__stdout__
         
-
 def save_codes(opt):
     # Save some important code
     source_files = [f'scripts/train.sh',
@@ -94,8 +109,16 @@ def save_codes(opt):
         shutil.copy2(file_dir, opt.codes_dir)
 
 def save_group_args(opt):
+    def is_serializable(value):
+        try:
+            yaml.safe_dump(value)
+            return True
+        except yaml.YAMLError:
+            return False
+    serializable_dict = {k: v for k, v in vars(opt).items() if is_serializable(v)}
+    
     with open(os.path.join(opt.save_dir, 'opt.yaml'), 'w') as f:
-        yaml.safe_dump(vars(opt), f, sort_keys=False)   
+        yaml.safe_dump(serializable_dict, f, sort_keys=False)
 
 def set_redirect_printing(opt):
     training_info_log_path = os.path.join(opt.save_dir,"training_info.log")
@@ -124,21 +147,49 @@ class ModelLoader:
         
     def load_model(self, exp_name, opt):
         tmp = exp_name.split('_')
-        if 'transformer' in tmp:
-            class_name = 'Transformer'
-        elif 'unet' in tmp:
-            class_name = 'UNet'
-        else:
-            raise ValueError(f"Unknown model type in experiment name: {exp_name}")
+        model_name = ''.join(tmp[:-1]) # except the version
+        match model_name:
+            case 'transformer':
+                class_name = 'Transformer'
+            case 'transformerbilstm':
+                class_name = 'TransformerBiLSTM'
+            case 'unet':
+                class_name = 'UNet'
+            case _:
+                raise ValueError(f"Unknown model type in experiment name: {exp_name}")
 
         # Dynamically import the module and class
         module = importlib.import_module(f'models.{exp_name}')
         model_class = getattr(module, class_name)
         
         # Instantiate the model class
-        if 'transformer' in tmp:
-            self.model = model_class(opt)
-        elif 'unet' in tmp:
-            self.model = model_class()
+        match model_name:
+            case 'transformer':
+                if exp_name == 'transformer_v3':
+                        
+                    self.model = model_class(
+                                input_dim = len(opt.feats) * 3,
+                                feat_dim  = opt.fog_model_feat_dim,
+                                nheads    = opt.fog_model_nheads,
+                                nlayers   = opt.fog_model_nlayers,
+                                dropout   = opt.fog_model_encoder_dropout,
+                                clip_dim  = opt.clip_dim,
+                                feats     = opt.feats,
+                                txt_cond  = opt.txt_cond,
+                                clip_version = opt.clip_version,
+                                activation = opt.activation
+                            )
+                else:
+                    self.model = model_class(
+                                    input_dim = opt.fog_model_input_dim,
+                                    feat_dim  = opt.fog_model_feat_dim,
+                                    nheads    = opt.fog_model_nheads,
+                                    nlayers   = opt.fog_model_nlayers,
+                                    dropout   = opt.fog_model_encoder_dropout,
+                                )
+            case 'transformerbilstm':
+                self.model = model_class(opt)
+            case 'unet':
+                self.model = model_class()
         
         assert self.model is not None, "Error when loading model"

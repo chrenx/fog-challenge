@@ -1,6 +1,6 @@
 python -m train.train_unet_v3 \
        --version               3 \
-       --device                2 \
+       --device                0 \
        --exp_name              unet_v3 \
        --wandb_pj_name         fog-challenge \
        --entity                chrenx \
@@ -16,11 +16,12 @@ python -m train.train_unet_v3 \
        --max_grad_norm         1 \
        --weight_decay          1e-6 \
        --grad_accum_step       1 \
-       --window                6304 \
+       --window                6976 \
        --learning_rate         26e-4 \
        --lr_scheduler          ReduceLROnPlateau \
        --preload_gpu           \
-    #    --disable_scheduler
+       --disable_wandb \
+       --disable_scheduler \
     #    --window                -1 \
     #    --disable_wandb
     #    --preload_gpu \
