@@ -6,6 +6,7 @@ apptainer/*
 
 !data/.gitkeep
 !data/fog_dataset*
+!data/process_data.ipynb
 !runs/.gitkeep
 !apptainer/fog_environment.yml
 !apptainer/fog_apptainer.def
