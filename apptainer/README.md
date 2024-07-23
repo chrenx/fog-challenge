@@ -1,0 +1,1 @@
+sudo apptainer run --nv fog_apptainer.sif

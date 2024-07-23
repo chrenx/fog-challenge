@@ -12,5 +12,8 @@ apptainer/*
 !apptainer/fog_apptainer.def
 !apptainer/evaluation.ipynb
 !apptainer/main.py
+!apptainer/codes
+!apptainer/README.md
+
 
 
