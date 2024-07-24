@@ -1,4 +1,4 @@
-import argparse, joblib, math, os, torch
+import argparse, csv, joblib, math, os, torch
 from collections import OrderedDict
 
 import pandas as pd
@@ -9,6 +9,23 @@ from tqdm import tqdm
 FEATURES = ['LowerBack_Acc_X', 'LowerBack_Acc_Y', 'LowerBack_Acc_Z']
 WINDOW = 6976
 
+
+def sample_normalize(sample):
+    """Mean-std normalization function. 
+
+    Args:
+        sample: (N,)
+    Returns:
+        normalized_sample: (N,)
+    """
+    if not isinstance(sample, torch.Tensor):
+        sample = torch.tensor(sample)
+    mean = torch.mean(sample)
+    std = torch.std(sample)
+    # Normalize the sample and handle division by zero
+    eps = 1e-8
+    normalized_sample = (sample - mean) / (std + eps)
+    return normalized_sample  # (N,)
 
 def is_valid_one_hot(matrix):
     # Check if the matrix has shape (N, 3)
@@ -145,10 +162,14 @@ def process_csv_files(opt):
         all_test_data[count] = {
             'ori_filename': filename,
             'trial_id': trial_id,
-            'gt': torch.tensor(gt_data[f'GroundTruth_Trial{trial_id}'].dropna(), dtype=torch.float32),
-            'LowerBack_Acc_X': torch.tensor(df_filtered['LowerBack_Acc_X'], dtype=torch.float32),
-            'LowerBack_Acc_Y': torch.tensor(df_filtered['LowerBack_Acc_Y'], dtype=torch.float32),
-            'LowerBack_Acc_Z': torch.tensor(df_filtered['LowerBack_Acc_Z'], dtype=torch.float32)
+            'gt': torch.tensor(gt_data[f'GroundTruth_Trial{trial_id}'].dropna(), 
+                               dtype=torch.float32),
+            'LowerBack_Acc_X': sample_normalize(torch.tensor(df_filtered['LowerBack_Acc_X'], 
+                                                             dtype=torch.float32)),
+            'LowerBack_Acc_Y': sample_normalize(torch.tensor(df_filtered['LowerBack_Acc_Y'], 
+                                                             dtype=torch.float32)),
+            'LowerBack_Acc_Z': sample_normalize(torch.tensor(df_filtered['LowerBack_Acc_Z'], 
+                                                             dtype=torch.float32))
         }
         count += 1
         # print(f"{trial_id}: {all_test_data[count-1]['gt'].shape}")
@@ -175,9 +196,9 @@ def generate_gt_csv(opt):
             grouped_data[trial_id] = np.concatenate((grouped_data[trial_id], 
                                                             gt_label.cpu().numpy().astype(int)))
 
-    print(len(grouped_data.keys()))
-    for key, value in grouped_data.items():
-        print(f"sample: {key}, length: {value.size}")
+    # print(len(grouped_data.keys()))
+    # for key, value in grouped_data.items():
+    #     print(f"sample: {key}, length: {value.size}")
 
 
     data = {f"GroundTruth_Trial{key}": value.astype(int).tolist() \
@@ -191,9 +212,79 @@ def generate_gt_csv(opt):
     df = pd.DataFrame(data)
 
     df.to_csv('GuanRen_FoG_Ground_Truth_Data.csv', index=False)
+    print('Generate ground truth csv.')
         
 def generate_model_output_csv(opt):
-    pass
+    test_data = joblib.load(os.path.join(opt.test_dpath, f"test_data_window{WINDOW}.p"))
+    model_input = torch.stack([test_data[i]['model_input'] for i in range(len(test_data.keys()))])
+    gt = torch.stack([test_data[i]['gt'] for i in range(len(test_data.keys()))])
+    model_input = model_input.to(opt.device)
+    gt = gt.to(opt.device)
+    
+    from codes.unet_v3 import UNet
+    weights_path = "codes/best_model_f1_3150.pt"
+    model = UNet(3)
+    model = model.to(opt.device)
+    weights = torch.load(weights_path, map_location=opt.device)['model']
+    model.load_state_dict(weights)
+    
+    model.eval()
+    with torch.no_grad():
+        test_input = torch.permute(model_input, (0,2,1)) # (B, num_feats, window)
+        test_pred = model(test_input) # (B, 1, window)
+        test_pred = torch.permute(test_pred, (0, 2, 1)) # (B, window, 1)
+        prec, recall, f1 = evaluation_metrics(test_pred, gt)
+
+    statistics = {'F1 score': f1.item(), 'precision': prec.item(), 'recall': recall.item()}
+    with open('GuanRen_Statistics.csv', 'w', newline='') as csvfile:
+        fieldnames = ['F1 score', 'precision','recall']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow(statistics)
+        print('Generate Statistics csv.')
+
+    #*==============================================================================================
+    pred = torch.round(test_pred)  # (B, window, 1)
+    real = torch.argmax(gt[:, :, :2], dim=-1, keepdim=True)  # (B, window, 1)
+    mask = (gt[:, :, 2] != 1).unsqueeze(-1)  # (B, window, 1)
+    output = (pred * mask.float()).squeeze() # (B, window)
+
+    grouped_data = {}
+    for i in range(output.shape[0]):
+        sample = test_data[i]
+        trial_id = sample['trial_id']
+        
+        a = output[i].cpu().numpy()
+        a[a == 0.0] = 0
+        a[a == 1.0] = 1
+        a[a == 2.0] = 2
+        
+        if trial_id not in grouped_data:
+            grouped_data[trial_id] = a
+        else:
+            
+            grouped_data[trial_id] = np.concatenate((grouped_data[trial_id], a))
+
+    data = {f"ModelOutput_Trial{key}": value.astype(int).tolist() \
+            for key, value in grouped_data.items()}
+
+    max_len = max(len(v) for v in data.values())
+
+    for key in data:
+        data[key] += [None] * (max_len - len(data[key]))
+        
+    for key in data:
+        for i in range(len(data[key])):
+            if data[key][i] is not None:
+                data[key][i] = int(data[key][i])
+
+    df = pd.DataFrame(data)
+
+    # Save the DataFrame to a CSV file
+    df.to_csv('GuanRen_FoG_Model_Output_Data.csv', index=False)
+
+
+
 
 def parse_opt():
     parser = argparse.ArgumentParser()
@@ -212,8 +303,8 @@ def parse_opt():
 if __name__ == "__main__":
     assert torch.cuda.is_available(), "**** No available GPUs."
     opt = parse_opt()
-    # process_csv_files(opt)
-    # generate_gt_csv(opt)
+    process_csv_files(opt)
+    generate_gt_csv(opt)
     generate_model_output_csv(opt)
 
 
