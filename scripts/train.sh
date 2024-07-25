@@ -4,14 +4,14 @@ python -m train.train \
        --save_best_model       \
        --seed                  19 \
        \
-       --exp_name              transformer_v3 \
-       --cuda_id               2 \
+       --exp_name              unet_v4 \
+       --cuda_id               0 \
        \
        --description           "transformer, txt concatenate x" \
        --optimizer             "adam" \
        --train_datasets        kaggle_pd_data \
        --train_num_steps       10000 \
-       --batch_size            128 \
+       --batch_size            64 \
        --random_aug            \
        --max_grad_norm         1 \
        --weight_decay          1e-6 \
@@ -24,7 +24,7 @@ python -m train.train \
                                l_latshank_gyr r_latshank_gyr l_ankle_acc \
        --txt_cond \
        \
-       --train_datasets        daphnet kaggle_pd_data_defog kaggle_pd_data_tdcsfog turn_in_place \
+       --train_datasets        daphnet \
        \
        --fog_model_feat_dim    512 \
        --fog_model_nheads      8 \
@@ -34,7 +34,7 @@ python -m train.train \
        --activation            'gelu' \
        \
        --preload_gpu   \
-    #    --disable_wandb \
+       --disable_wandb \
     #    --disable_scheduler \
     #    --txt_cond               \
     #    --train_datasets        daphnet kaggle_pd_data_defog kaggle_pd_data_tdcsfog turn_in_place \

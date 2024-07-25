@@ -168,17 +168,17 @@ class ModelLoader:
                 if exp_name == 'transformer_v3':
                         
                     self.model = model_class(
-                                input_dim = len(opt.feats) * 3,
-                                feat_dim  = opt.fog_model_feat_dim,
-                                nheads    = opt.fog_model_nheads,
-                                nlayers   = opt.fog_model_nlayers,
-                                dropout   = opt.fog_model_encoder_dropout,
-                                clip_dim  = opt.clip_dim,
-                                feats     = opt.feats,
-                                txt_cond  = opt.txt_cond,
-                                clip_version = opt.clip_version,
-                                activation = opt.activation
-                            )
+                                    input_dim = len(opt.feats) * 3,
+                                    feat_dim  = opt.fog_model_feat_dim,
+                                    nheads    = opt.fog_model_nheads,
+                                    nlayers   = opt.fog_model_nlayers,
+                                    dropout   = opt.fog_model_encoder_dropout,
+                                    clip_dim  = opt.clip_dim,
+                                    feats     = opt.feats,
+                                    txt_cond  = opt.txt_cond,
+                                    clip_version = opt.clip_version,
+                                    activation = opt.activation
+                                )
                 else:
                     self.model = model_class(
                                     input_dim = opt.fog_model_input_dim,
@@ -190,6 +190,12 @@ class ModelLoader:
             case 'transformerbilstm':
                 self.model = model_class(opt)
             case 'unet':
-                self.model = model_class()
+                if exp_name == "unet_v4":
+                    self.model = model_class(
+                                    channel  = len(opt.feats) * 3,
+                                    feats    = opt.feats
+                                )
+                else:
+                    self.model = model_class()
         
         assert self.model is not None, "Error when loading model"
