@@ -168,6 +168,7 @@ lowerback_acc \
 
 17 个 trials, 35 keys
 data/rectified_data/all_data/all_daphnet.p {    # already normalized
+    'rectified_1_daphnet': {
         'ori_filename':txt_file,
         'event': np.array(event), 
         'L_Ankle_Acc_AP': sample_normalize(torch.tensor(ankle_acc_ap, dtype=torch.float32)),
@@ -181,6 +182,7 @@ data/rectified_data/all_data/all_daphnet.p {    # already normalized
         'LowerBack_Acc_ML': sample_normalize(torch.tensor(lowerback_acc_ml, dtype=torch.float32)),
         'gt': torch.tensor(gt, dtype=torch.float32),
     }
+}
 lowerback_acc l_midlatthigh_acc l_ankle_acc \
 
 ====================================================================================================
