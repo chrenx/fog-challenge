@@ -4,6 +4,7 @@ submission/*
 **/__pycache__/
 **/*.pt
 
+
 !data/.gitkeep
 !data/fog_dataset*
 !data/process_data.ipynb
