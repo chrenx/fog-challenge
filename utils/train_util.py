@@ -3,6 +3,7 @@ from datetime import datetime
 
 import torch
 import numpy as np
+from torch.optim import Adam, AdamW, SGD
 
 
 #* Data Augmentation ===============================================================================
@@ -60,6 +61,41 @@ def get_cur_time():
     cur_time = '{:%Y_%m_%d_%H_%M_%S}_{:02.0f}'.format(cur_time, 
                                                       cur_time.microsecond / 10000.0)
     return cur_time
+
+def get_lr_scheduler(lr_scheduler, optimizer, cond):
+    match lr_scheduler:
+        case 'ReduceLROnPlateau':
+            return torch.optim.lr_scheduler.ReduceLROnPlateau(
+                        optimizer=optimizer,
+                        factor=cond['lr_scheduler_factor'],
+                        patience=cond['lr_scheduler_patience'])
+        case 'MultiStepLR':
+            return torch.optim.lr_scheduler.MultiStepLR(
+                        optimizer=optimizer,
+                        milestones=[10,20,30,40,50,60,70,80,90])
+        case 'MultiplicativeLR':
+            lmbda = lambda epoch: 0.65 ** epoch
+            return torch.optim.lr_scheduler.MultiplicativeLR(optimizer, lr_lambda=lmbda)
+        case 'CosineAnnealingLR':
+            return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10, eta_min=0)
+        case _ :
+            raise "Pick a learning rate scheduler."
+
+def get_optimizer(optimizer, parameters, cond):
+    match optimizer:
+        case 'adam':
+            return Adam(parameters, lr=cond['learning_rate'], 
+                        betas=cond['adam_betas'], eps=cond['adam_eps'], 
+                        weight_decay=cond['weight_decay'])
+        case 'adamw':
+            return AdamW(parameters, lr=cond['learning_rate'], 
+                        betas=cond['adam_betas'], eps=cond['adam_eps'], 
+                        weight_decay=cond['weight_decay'])
+        case 'sgd':
+            return SGD(parameters, lr=cond['learning_rate'], momentum=cond['sgd_momentum'], 
+                       nesterov=cond['sgd_enable_nesterov'])
+        case _:
+            raise "Give a proper name of optimizer"
 
 def print_initial_info(opt, redirect_file=None, model=None):
     def print_initial_info_helper(opt):
@@ -138,7 +174,6 @@ def set_seed(opt):
     random.seed(opt.seed)
     np.random.seed(opt.seed)
     torch.manual_seed(opt.seed)
-
 
 class ModelLoader:
     def __init__(self, exp_name, opt=None):

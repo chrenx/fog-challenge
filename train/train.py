@@ -7,7 +7,7 @@ from torch.utils import data
 
 from data.fog_dataset import FoGDataset
 from tqdm import tqdm
-from utils.config import ALL_DATASETS, FEATURES_LIST
+from utils.config import ALL_DATASETS, DATASETS_FEATS, FEATURES_LIST
 from utils import *
 
 
@@ -47,20 +47,23 @@ class Trainer(object):
         self.disable_scheduler = opt.disable_scheduler
         self.opt = opt
         
-        if opt.optimizer == 'adam':
-            self.optimizer = Adam(self.model.parameters(), lr=opt.learning_rate, 
-                                  betas=opt.adam_betas, eps=opt.adam_eps, 
-                                  weight_decay=opt.weight_decay)
-        elif opt.optimizer == 'adamw':
-            self.optimizer = AdamW(self.model.parameters(), lr=opt.learning_rate,
-                                   betas=opt.adam_betas, eps=opt.adam_eps, 
-                                   weight_decay=opt.weight_decay)
-        assert self.optimizer is not None, "Error: optimizer is not given."
+
+        cond = {
+            'learning_rate': opt.learning_rate,
+            'adam_betas': opt.adam_betas,
+            'adam_eps': opt.adam_eps,
+            'weight_decay': opt.weight_decay,
+            'sgd_momentum': opt.sgd_momentum,
+            'sgd_enable_nesterov': opt.sgd_enable_nesterov,
+        }
+
+        self.optimizer = get_optimizer(opt.optimizer, self.model.parameters(), cond)
         
-        self.scheduler_optim = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                                                optimizer=self.optimizer,
-                                                factor=opt.lr_scheduler_factor,
-                                                patience=opt.lr_scheduler_patience)
+        cond = {
+            'lr_scheduler_factor': opt.lr_scheduler_factor, 
+            'lr_scheduler_patience': opt.lr_scheduler_patience
+        }
+        self.scheduler_optim = get_lr_scheduler(opt.lr_scheduler, self.optimizer, cond)
         
         opt.model_num_params = count_model_parameters(self.model)
         
@@ -122,13 +125,14 @@ class Trainer(object):
         filename = f"best_model_{base}_{step}.pt" if best else f"model_{base}_{step}.pt"
         torch.save(data, os.path.join(self.weights_dir, filename))      
         
-    def _loss_func(self, pred, gt):
+    def _loss_func(self, pred, gt, train_mode=False):
         """Compute the Binary Cross-Entropy loss for each class and sum over the class dimension
 
         Args:
             pred: (B, window, 1) prob
             gt: (B, window, 3) one hot
         """
+        penalty_cost = self.penalty_cost if train_mode else 0
         max_indices = torch.argmax(gt, dim=2, keepdim=True) # (B, window, 1)
         tmp_gt_mask = (max_indices != 2).float() # (B, window, 1)
         tmp_gt = max_indices * tmp_gt_mask # (B, window, 1)
@@ -141,7 +145,7 @@ class Trainer(object):
         # Additional cost for misclassifying the minority class
         minority_mask = (gt[:,:,1] == 1).float() # (B, window)
         minority_mask = minority_mask.unsqueeze(-1) # (B, window, 1)
-        loss = loss * (mask + self.penalty_cost * minority_mask)
+        loss = loss * (mask + penalty_cost * minority_mask)
    
         return loss.sum() / mask.sum()
 
@@ -265,7 +269,7 @@ class Trainer(object):
             train_pred = self.model(train_input) # (B,window,1)
             
             
-            train_loss = self._loss_func(train_pred, train_gt.to(self.device))
+            train_loss = self._loss_func(train_pred, train_gt.to(self.device), train_mode=True)
             train_loss /= self.grad_accum_step
             train_loss.backward()
             
@@ -311,7 +315,9 @@ class Trainer(object):
                 self.model.eval()
                 with torch.no_grad():
                     for _ in tqdm(range(self.val_n_batch), desc=f"Validation at epoch {cur_epoch}"):
-                        val_data = next(self.val_dl) 
+                        
+                        val_data = next(self.val_dl)
+
                         val_gt = val_data['gt'] # (B, window, 3)
                         
                         val_input = {}    
@@ -327,7 +333,7 @@ class Trainer(object):
                         val_pred = self.model(val_input) # (B, window, 1)
                         
                         prec, recall, f1 = self._evaluation_metrics(val_pred, 
-                                                                val_gt.to(self.device))
+                                                                    val_gt.to(self.device))
                         val_loss = self._loss_func(val_pred, val_gt.to(self.device))
                         
                         avg_val_f1 += f1
@@ -354,12 +360,12 @@ class Trainer(object):
                     MYLOGGER.info(f"avg_val_f1: {avg_val_f1.item():4f}")
                     MYLOGGER.info(f"avg_val_prec: {avg_val_prec.item():4f}")
                     MYLOGGER.info(f"avg_val_recall: {avg_val_recall.item():4f}")
-                
+
                 # Log learning rate
                 if self.use_wandb:
                     wandb.log({'learning_rate': self.scheduler_optim.get_last_lr()[0]}, 
                               step=step_idx+1)
-                
+
                 if self.save_best_model and avg_val_f1 > best_val_f1:
                     best_val_f1 = avg_val_f1
                     tmp = f"{avg_val_f1.item():4f}"
@@ -367,7 +373,7 @@ class Trainer(object):
                         wandb.run.summary['best_val_f1 / step'] = [tmp, step_idx+1]
                     self._save_model(step_idx + 1, base='f1', best=True)
                     self._eval_test_data(step=step_idx + 1, base='f1')
-                    
+
                 if self.save_best_model and avg_val_prec > best_val_prec:
                     best_val_prec = avg_val_prec
                     tmp = f"{avg_val_prec.item():4f}"
@@ -423,7 +429,7 @@ def parse_opt():
     # data path
     parser.add_argument('--root_dpath', default='data/rectified_data', 
                                         help='directory that contains different processed datasets')
-    parser.add_argument('--train_datasets', type=str, nargs='+', default=ALL_DATASETS, 
+    parser.add_argument('--train_datasets', type=str, required=True, 
                                        help='provided dataset_name, e.g. kaggle, ...')
     parser.add_argument('--lab_home', type=str, default="lab", 
                                        help='lab, lab_home')
@@ -448,10 +454,12 @@ def parse_opt():
                                            help='generator_learning_rate')
     parser.add_argument('--adam_betas', default=(0.9, 0.98), help='betas for Adam optimizer')
     parser.add_argument('--adam_eps', default=1e-9, help='epsilon for Adam optimizer')
+    parser.add_argument('--sgd_momentum', type=float, default=0)
+    parser.add_argument('--sgd_enable_nesterov', action='store_true')
     parser.add_argument('--weight_decay', type=float, default=0, help='for adam optimizer')
     parser.add_argument('--lr_scheduler', type=str, default='ReduceLROnPlateau')
     parser.add_argument('--lr_scheduler_factor', type=float, default=0.1, help='lr scheduler')
-    parser.add_argument('--lr_scheduler_patience', type=int, default=20, help='for adam optimizer')
+    parser.add_argument('--lr_scheduler_patience', type=int, default=10, help='for adam optimizer')
     parser.add_argument('--lr_scheduler_warmup_steps', type=int, default=64, help='lr scheduler')
 
     parser.add_argument('--train_num_steps', type=int, default=20000, 
@@ -505,6 +513,7 @@ def parse_opt():
     opt.codes_dir = os.path.join(opt.save_dir, 'codes')
     opt.device_info = torch.cuda.get_device_name(int(opt.cuda_id)) 
     opt.device = f"cuda:{opt.cuda_id}"
+    opt.feats = DATASETS_FEATS[opt.train_datasets]
         
     return opt
 

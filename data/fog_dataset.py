@@ -38,12 +38,16 @@ class FoGDataset(Dataset):
             self.idx_feats[idx] = opt.feats[idx]
             self.feats_data[opt.feats[idx]] = None
             
-        self.all_dname = opt.train_datasets[0]
-        for i in range(1,len(opt.train_datasets)):
-            if opt.train_datasets[i] not in ALL_DATASETS:
-                raise Exception(f"{opt.train_datasets[i]} is not recognized.")
-            self.all_dname += f"_{opt.train_datasets[i]}"
-            
+        # self.all_dname = opt.train_datasets[0]
+        # for i in range(1,len(opt.train_datasets)):
+        #     if opt.train_datasets[i] not in ALL_DATASETS:
+        #         raise Exception(f"{opt.train_datasets[i]} is not recognized.")
+        #     self.all_dname += f"_{opt.train_datasets[i]}"
+
+        self.all_dname = opt.train_datasets
+        if opt.train_datasets not in ALL_DATASETS:
+            raise Exception(f"{opt.train_datasets} is not recognized.")
+          
         full_or_window = f"window{self.window}" if self.window != -1 else "full"
 
         if self.random_aug:
@@ -54,7 +58,7 @@ class FoGDataset(Dataset):
         mode_dpath = os.path.join(opt.root_dpath, 'all_data', dname)
         
         if not os.path.exists(mode_dpath):
-            self._generate_train_val_test(opt.root_dpath, opt.train_datasets)
+            self._generate_train_val_test(opt.root_dpath, [opt.train_datasets])
   
         self._load_train_val_test_data(mode_dpath) 
         
@@ -415,8 +419,29 @@ class FoGDataset(Dataset):
                 r_latshank_gyr = torch.cat([series_info['R_LatShank_Gyr_AP'][:,None],
                                             series_info['R_LatShank_Gyr_ML'][:,None],
                                             series_info['R_LatShank_Gyr_SI'][:,None]], dim=1)
+            l_midlatthigh_acc = torch.zeros(series_info['gt'].shape[0], 3, 
+                                            dtype=torch.float32)  # (N,)
+            l_ankle_acc = torch.zeros(series_info['gt'].shape[0], 
+                                      3, dtype=torch.float32)  # (N,)
+            lowerback_acc = torch.zeros(series_info['gt'].shape[0], 3, 
+                                        dtype=torch.float32)  # (N,)
+        elif dataset == 'turn_in_place_l' or dataset == 'turn_in_place_r':
+            side = 'L' if 'L_LatShank_Acc_ML' in series_info.keys() else 'R'
             
-            
+            if side == 'L':
+                l_latshank_acc = torch.cat([series_info['L_LatShank_Acc_AP'][:,None],
+                                            series_info['L_LatShank_Acc_ML'][:,None],
+                                            series_info['L_LatShank_Acc_SI'][:,None]], dim=1)
+                l_latshank_gyr = torch.cat([series_info['L_LatShank_Gyr_AP'][:,None],
+                                            series_info['L_LatShank_Gyr_ML'][:,None],
+                                            series_info['L_LatShank_Gyr_SI'][:,None]], dim=1)
+            else: 
+                r_latshank_acc = torch.cat([series_info['R_LatShank_Acc_AP'][:,None],
+                                            series_info['R_LatShank_Acc_ML'][:,None],
+                                            series_info['R_LatShank_Acc_SI'][:,None]], dim=1)
+                r_latshank_gyr = torch.cat([series_info['R_LatShank_Gyr_AP'][:,None],
+                                            series_info['R_LatShank_Gyr_ML'][:,None],
+                                            series_info['R_LatShank_Gyr_SI'][:,None]], dim=1)
             l_midlatthigh_acc = torch.zeros(series_info['gt'].shape[0], 3, 
                                             dtype=torch.float32)  # (N,)
             l_ankle_acc = torch.zeros(series_info['gt'].shape[0], 

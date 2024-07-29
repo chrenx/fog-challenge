@@ -132,6 +132,7 @@ data/rectified_data/turn_in_place/all_turn_in_place.p { # already normalized
         'gt': torch.tensor(gt),                                                 (N,) # 0 or 1
     }
 }
+l_latshank_acc r_latshank_acc l_latshank_gyr r_latshank_gyr \
 
 833 个 trials, 833 keys
 data/rectified_data/all_data/all_kaggle_pd_data_tdcsfog.p { # already normalized
@@ -147,6 +148,7 @@ data/rectified_data/all_data/all_kaggle_pd_data_tdcsfog.p { # already normalized
         'gt': torch.tensor(df['gt'].to_numpy(), dtype=torch.float32),              (N,) # 0 or 1
     }
 }
+lowerback_acc \
 
 91 个 trials, 1027 keys
 data/rectified_data/all_data/all_kaggle_pd_data_defog.p { # already normalized
@@ -162,6 +164,7 @@ data/rectified_data/all_data/all_kaggle_pd_data_defog.p { # already normalized
         'gt': torch.tensor(df['gt'].to_numpy(), dtype=torch.float32),
     }
 }
+lowerback_acc \
 
 17 个 trials, 35 keys
 data/rectified_data/all_data/all_daphnet.p {    # already normalized
@@ -178,6 +181,7 @@ data/rectified_data/all_data/all_daphnet.p {    # already normalized
         'LowerBack_Acc_ML': sample_normalize(torch.tensor(lowerback_acc_ml, dtype=torch.float32)),
         'gt': torch.tensor(gt, dtype=torch.float32),
     }
+lowerback_acc l_midlatthigh_acc l_ankle_acc \
 
 ====================================================================================================
 data/rectified_data/kaggle_pd_data/all_kaggle_pd_data.p: {     # already normalized

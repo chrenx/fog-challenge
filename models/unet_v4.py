@@ -80,8 +80,8 @@ class UNet(nn.Module):
             x.append(src[body_name].unsqueeze(dim=-1).permute(0,1,3,2)) 
         x = torch.cat(x, dim=2)  # (BS, window, num_feats, 3)
         bs, window, n_feats, n_orient = x.shape
-        x = x.reshape(bs, window, n_feats * n_orient) # (BS, window, 21)
-        x = x.permute(0,2,1) # (bs, 21, window)
+        x = x.reshape(bs, window, n_feats * n_orient) # (BS, window, 7*3)
+        x = x.permute(0,2,1) # (bs, 7*3, window)
         
         #* Encoding layers *************************************************************************
         xe11 = self.relu(self.e11(x))

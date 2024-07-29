@@ -1,4 +1,18 @@
-ALL_DATASETS = ['daphnet', 'kaggle_pd_data_defog', 'kaggle_pd_data_tdcsfog', 'turn_in_place']
+ALL_DATASETS = ['daphnet', 'kaggle_pd_data_defog', 'kaggle_pd_data_tdcsfog', 
+                'turn_in_place', 'turn_in_place_l', 'turn_in_place_r']
+
+DATASETS_FEATS = {
+    'turn_in_place_l': ['l_latshank_acc',  
+                        'l_latshank_gyr'],
+    'turn_in_place_r': ['r_latshank_acc',  
+                        'r_latshank_gyr'],
+    'turn_in_place': ['l_latshank_acc', 
+                      'r_latshank_acc', 
+                      'l_latshank_gyr', 
+                      'r_latshank_gyr'],
+    'kaggle_pd_data_tdcsfog': ['lowerback_acc'],
+    'daphnet': ['lowerback_acc', 'l_midlatthigh_acc', 'l_ankle_acc']
+}
 
 VALIDATION_SET = ["rectified_5_dataset_fog_release", 
                   "rectified_14_dataset_fog_release"]
