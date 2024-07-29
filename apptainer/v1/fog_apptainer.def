@@ -1,0 +1,54 @@
+Bootstrap: docker
+From: ubuntu:24.04
+
+%post
+    # Update and install dependencies
+    apt-get update && apt-get install -y \
+        software-properties-common \
+        build-essential \
+        curl \
+        wget \
+        libssl-dev \
+        zlib1g-dev \
+        libbz2-dev \
+        libreadline-dev \
+        libsqlite3-dev \
+        libffi-dev \
+        liblzma-dev \
+        git \
+        ca-certificates \
+        lsb-release
+
+    # Add deadsnakes PPA for Python 3.10
+    add-apt-repository ppa:deadsnakes/ppa
+    apt-get update
+
+    # Install Python 3.10
+    apt-get install -y python3.10 python3.10-venv python3.10-dev
+    apt-get install -y python3-pip
+
+    # Create a virtual environment
+    python3.10 -m venv /opt/venv
+
+    chmod +777 /opt/venv/*
+
+    . /opt/venv/bin/activate
+    pip install --upgrade pip
+    pip install joblib
+    pip install pandas
+    pip install numpy
+    pip install tqdm
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+    # Make sure the venv is activated by default
+    echo '. /opt/venv/bin/activate' >> /environment
+    
+
+%environment
+    # Set environment variables
+    export VIRTUAL_ENV=/opt/venv
+    export PATH=/opt/venv/bin:$PATH
+
+%runscript
+    # This script runs when the container is executed
+    exec /bin/bash --rcfile /environment

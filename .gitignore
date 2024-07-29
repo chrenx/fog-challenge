@@ -2,7 +2,7 @@ data/*
 runs/*
 submission/*
 **/__pycache__/
-apptainer/*
+**/apptainer/*.pt
 
 !data/.gitkeep
 !data/fog_dataset*
