@@ -6,12 +6,12 @@ python -m train.train \
     --seed                  19 \
     \
     --exp_name              unet_v4 \
-    --cuda_id               2 \
+    --cuda_id               3 \
     \
     --description           "daphnet" \
     --optimizer             "adam" \
     --train_num_steps       8000 \
-    --batch_size            128 \
+    --batch_size            8 \
     --random_aug            \
     --max_grad_norm         1 \
     --weight_decay          1e-6 \
