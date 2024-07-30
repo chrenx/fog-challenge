@@ -137,7 +137,7 @@ l_latshank_acc r_latshank_acc l_latshank_gyr r_latshank_gyr \
 833 个 trials, 833 keys
 data/rectified_data/all_data/all_kaggle_pd_data_tdcsfog.p { # already normalized
     'rectified_1_kaggle_pd_data' :{
-        'ori_filename': f"{lab_home}_" + csv_file,
+        'ori_filename': "tdcsfog" + csv_file,
         'event': df['event'].to_numpy(),                                           (N,)
         'LowerBack_Acc_V': sample_normalize(torch.tensor(df['AccV'].to_numpy(),    (N,) 
                                                             dtype=torch.float32)),
@@ -153,7 +153,7 @@ lowerback_acc \
 91 个 trials, 1027 keys
 data/rectified_data/all_data/all_kaggle_pd_data_defog.p { # already normalized
     'rectified_1_kaggle_pd_data' :{
-        'ori_filename': f"{lab_home}_" + csv_file,
+        'ori_filename': "defog" + csv_file,
         'event': event, 
         'LowerBack_Acc_V': sample_normalize(torch.tensor(df['AccV'].to_numpy(), 
                                                          dtype=torch.float32) * physical_const),
@@ -180,7 +180,7 @@ data/rectified_data/all_data/all_daphnet.p {    # already normalized
         'LowerBack_Acc_AP': sample_normalize(torch.tensor(lowerback_acc_ap, dtype=torch.float32)),
         'LowerBack_Acc_V': sample_normalize(torch.tensor(lowerback_acc_v, dtype=torch.float32)),
         'LowerBack_Acc_ML': sample_normalize(torch.tensor(lowerback_acc_ml, dtype=torch.float32)),
-        'gt': torch.tensor(gt, dtype=torch.float32),
+        'gt': torch.tensor(gt, dtype=torch.float32), # 1, 2, 0
     }
 }
 lowerback_acc l_midlatthigh_acc l_ankle_acc \
