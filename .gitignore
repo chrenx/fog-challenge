@@ -3,7 +3,9 @@ runs/*
 submission/*
 **/__pycache__/
 **/*.pt
-
+**/*.csv
+**/*.p
+**/*.sif
 
 !data/.gitkeep
 !data/fog_dataset*
