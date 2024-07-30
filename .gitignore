@@ -3,6 +3,7 @@ runs/*
 submission/*
 **/__pycache__/
 **/*.pt
+**/*.csv
 
 !data/.gitkeep
 !data/fog_dataset*

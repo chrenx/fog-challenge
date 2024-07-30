@@ -6,6 +6,9 @@ import numpy as np
 from tqdm import tqdm
 
 
+DATASETS_FEATS = {
+    
+}
 FEATURES = ['LowerBack_Acc_X', 'LowerBack_Acc_Y', 'LowerBack_Acc_Z']
 WINDOW = 6976
 
@@ -298,6 +301,10 @@ def parse_opt():
 
     opt = parser.parse_args()
     opt.device = f"cuda:{opt.device}"
+    if opt.enable_self_test:
+        opt.test_dpath = 'self_test_data'
+        opt.gt_dpath = 'self_gt'
+
     return opt
 
 if __name__ == "__main__":
