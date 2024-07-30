@@ -5,6 +5,7 @@ submission/*
 **/*.pt
 **/*.csv
 
+
 !data/.gitkeep
 !data/fog_dataset*
 !data/process_data.ipynb
