@@ -37,6 +37,51 @@ PERMUTATIONS = [[0,1,2], [0,2,1], [1,0,2], [1,2,0], [2,0,1], [2,1,0]]
 FEATURES = ['LowerBack_Acc_X', 'LowerBack_Acc_Y', 'LowerBack_Acc_Z']
 WINDOW = 1024
 
+def check_and_find_length(tensor):
+    B, window, _ = tensor.shape
+    lengths = []
+
+    for b in range(B):
+        # Find the first position with 1 in the third column
+        first_one_pos = (tensor[b, :, 2] == 1).nonzero(as_tuple=True)[0]
+        
+        if first_one_pos.numel() == 0:
+            # raise ValueError(f"Batch {b} does not contain any '1' in the third column.")
+            lengths.append(window)
+            continue
+        
+        first_one_pos = first_one_pos[0].item()
+        
+        # Check if all subsequent positions in the third column are 1
+        if not torch.all(tensor[b, first_one_pos:, 2] == 1):
+            raise ValueError(f"Batch {b} contains values other than '1' in the third column after position {first_one_pos}.")
+        
+        lengths.append(first_one_pos)
+
+    return lengths
+
+def rearrange_output(data_dict):
+    for file, value in data_dict.items():
+        start_t_idx = value['start_t_idx']
+        end_t_idx = value['end_t_idx']
+        output = value['output']
+        actual_len = value['actual_len']
+
+        # Zip the lists together
+        combined = list(zip(start_t_idx, end_t_idx, actual_len, output))
+
+        # Sort by start_t_idx
+        combined.sort(key=lambda x: x[0])
+
+        # Unzip the sorted list back into separate lists
+        sorted_start_t_idx, sorted_end_t_idx, sorted_actual_len, sorted_output = zip(*combined)
+
+        # Update the dictionary with the sorted lists
+        value['start_t_idx'] = list(sorted_start_t_idx)
+        value['end_t_idx'] = list(sorted_end_t_idx)
+        value['actual_len'] = list(sorted_actual_len)
+        value['output'] = list(sorted_output)
+
 def cycle_dataloader(dl):
     while True:
         for data in dl:
@@ -111,6 +156,7 @@ def evaluation_metrics(output, gt):
 
     return tp, fp, fn
 
+
 def split_by_window(opt, model_name):
     all_data = joblib.load(os.path.join(opt.test_dpath, f"all_{model_name}.p"))
     
@@ -124,33 +170,33 @@ def split_by_window(opt, model_name):
 
         padding_len_ceil = math.ceil(series_len / WINDOW) * WINDOW - series_len
         padding_len_floor = math.floor(series_len / WINDOW) * WINDOW
-        
-        # pad_gt = torch.ones(padding_len_ceil, dtype=torch.int8, 
-        #                         device=series_info['gt'].device) * 2
-        # concate_gt = torch.cat([series_info['gt'], pad_gt], dim=0) # (T',)
 
-
-        if padding_len_ceil < 0.3 * WINDOW:            
-            pad_gt = torch.ones(padding_len_ceil, dtype=torch.int8, 
-                                    device=series_info['gt'].device) * 2
-            concate_gt = torch.cat([series_info['gt'], pad_gt], dim=0) # (T',)
+        ############################################################################################
+        # if padding_len_ceil < 0.3 * WINDOW:            
+        #     pad_gt = torch.ones(padding_len_ceil, dtype=torch.int8, 
+        #                             device=series_info['gt'].device) * 2
+        #     concate_gt = torch.cat([series_info['gt'], pad_gt], dim=0) # (T',)
             
-            for cat_feat in DATASETS_FEATS_MODEL[model_name]:
-                # (T',3)
-                all_data[series_idx][cat_feat] = torch.cat([all_data[series_idx][cat_feat], 
-                                                        torch.zeros(padding_len_ceil, 3)], dim=0)
-        else:
-            concate_gt = series_info['gt'][:padding_len_floor] # (T',)
-            for cat_feat in DATASETS_FEATS_MODEL[model_name]:
-                # (T',3)
-                all_data[series_idx][cat_feat] = all_data[series_idx][cat_feat][:padding_len_floor,:]
-
-        
-        # for cat_feat in DATASETS_FEATS_MODEL[model_name]:
-        #     # (T',3)
-        #     all_data[series_idx][cat_feat] = torch.cat([all_data[series_idx][cat_feat], 
+        #     for cat_feat in DATASETS_FEATS_MODEL[model_name]:
+        #         # (T',3)
+        #         all_data[series_idx][cat_feat] = torch.cat([all_data[series_idx][cat_feat], 
         #                                                 torch.zeros(padding_len_ceil, 3)], dim=0)
-        
+        # else:
+        #     concate_gt = series_info['gt'][:padding_len_floor] # (T',)
+        #     for cat_feat in DATASETS_FEATS_MODEL[model_name]:
+        #         # (T',3)
+        #         all_data[series_idx][cat_feat] = all_data[series_idx][cat_feat][:padding_len_floor,:]
+        ############################################################################################
+        pad_gt = torch.ones(padding_len_ceil, dtype=torch.int8, 
+                                device=series_info['gt'].device) * 2
+        concate_gt = torch.cat([series_info['gt'], pad_gt], dim=0) # (T',)
+
+        for cat_feat in DATASETS_FEATS_MODEL[model_name]:
+            # (T',3)
+            all_data[series_idx][cat_feat] = torch.cat([all_data[series_idx][cat_feat], 
+                                                        torch.zeros(padding_len_ceil, 3)], dim=0)
+        ############################################################################################
+
         #* split by window =================================================================
         for i in range(0, concate_gt.shape[0], WINDOW):
             start_t_idx = int(i)
@@ -349,6 +395,8 @@ def self_test_generate_model_output_csv(opt):
     model.load_state_dict(weights)
 
 
+    model_output = {}
+
     cum_tp, cum_fp, cum_fn = 0.0, 0.0, 0.0      
     model.eval()
     with torch.no_grad():
@@ -371,20 +419,62 @@ def self_test_generate_model_output_csv(opt):
             
             test_pred /= len(PERMUTATIONS)
             
-            tp, fp, fn = evaluation_metrics(test_pred, 
-                                                    test_gt.to(opt.device))
+            tp, fp, fn = evaluation_metrics(test_pred, test_gt.to(opt.device))
             
             cum_tp += tp
-
             cum_fp += fp
             cum_fn += fn
 
+            gt_lengths = check_and_find_length(test_gt) # [...] w/ length B
+
+            # keep track of model output #######################################
+            for i in range(test_pred.shape[0]):
+                ori_filename = test_data['ori_filename'][i]
+                if ori_filename not in model_output:
+                    model_output[ori_filename] = {
+                        'start_t_idx': [], # [0, 1024, ...]
+                        'end_t_idx': [], # [1024, 2048, ...]
+                        'output': [], # (windows)
+                        'actual_len': [] # w/ length batch_size
+                    }
+    
+                model_output[ori_filename]['start_t_idx'].append(
+                    test_data['start_t_idx'][i].item()  
+                )
+                model_output[ori_filename]['end_t_idx'].append(
+                    test_data['end_t_idx'][i].item()
+                )
+                model_output[ori_filename]['output'].append(
+                    test_pred[i, :, :].squeeze().cpu()
+                )
+                model_output[ori_filename]['actual_len'].append(gt_lengths[i])
+
+                # print(model_output.keys())
+                # print(model_output[ori_filename]['start_t_idx'])
+                # print(model_output[ori_filename]['end_t_idx'])
+                # print(model_output[ori_filename]['output'][0].shape)      
 
         prec = 0 if cum_tp == 0 else cum_tp / (cum_tp + cum_fp)
         recall = 0 if cum_tp == 0 else cum_tp / (cum_tp + cum_fn)
         f1 = 0 if prec == 0 or recall == 0 else 2 * (prec * recall) / (prec + recall)
-        
+    
     print('prec, recall, f1', prec, recall, f1)
+
+    statistics = {'F1 score': round(f1, 4), 'precision': round(prec, 4), 'recall': round(recall, 4)}
+    with open('submission/GuanRen_Statistics.csv', 'w', newline='') as csvfile:
+        fieldnames = ['F1 score', 'precision','recall']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow(statistics)
+        print('Generate Statistics csv.')
+
+    rearrange_output(model_output)
+
+    for key, value in model_output.items():
+        value['output'] = torch.cat(value['output'])
+        
+        print(value['actual_len'])
+        exit(0)
 
     exit(0)
     for model_name in DATASETS_FEATS_MODEL.keys():
