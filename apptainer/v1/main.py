@@ -10,6 +10,36 @@ FEATURES = ['LowerBack_Acc_X', 'LowerBack_Acc_Y', 'LowerBack_Acc_Z']
 WINDOW = 6976
 
 
+def check_column_lengths_and_nan(csv_file1, csv_file2):
+    # Read the CSV files into DataFrames
+    df1 = pd.read_csv(csv_file1)
+    df2 = pd.read_csv(csv_file2)
+
+    # Get the column names
+    columns = df1.columns
+
+    # Check if both DataFrames have the same columns
+    if not set(columns) == set(df2.columns):
+        raise ValueError("The CSV files do not have the same columns.")
+
+    # Check each column for the same length and absence of NaN values
+    for column in columns:
+        col1 = df1[column].dropna()
+        col2 = df2[column].dropna()
+
+        # Check if lengths are equal and if there are any NaN values
+        if len(col1) != len(col2):
+            print(f"Column '{column}' does not have the same length in both files.")
+            return False
+
+        if col1.isna().any() or col2.isna().any():
+            print(f"Column '{column}' contains NaN values.")
+            return False
+
+    print("All columns have the same length and no NaN values.")
+    return True
+
+
 def sample_normalize(sample):
     """Mean-std normalization function. 
 

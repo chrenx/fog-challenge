@@ -37,6 +37,27 @@ PERMUTATIONS = [[0,1,2], [0,2,1], [1,0,2], [1,2,0], [2,0,1], [2,1,0]]
 FEATURES = ['LowerBack_Acc_X', 'LowerBack_Acc_Y', 'LowerBack_Acc_Z']
 WINDOW = 1024
 
+WEIGHTS = {
+    'kaggle': 0.8,
+    'turn': 0.15,
+    'daphnet': 0.05,
+}
+
+def dict_to_csv(data_dict, csv_file_path):
+    # Determine the maximum length among all tensors
+    max_length = max(tensor.size(0) for tensor in data_dict.values())
+
+    # Create a dictionary with lists, padding shorter lists with None
+    csv_dict = {}
+    for key, tensor in data_dict.items():
+        list_values = tensor.tolist()
+        list_values.extend([None] * (max_length - len(list_values)))
+        csv_dict[key] = list_values
+    # Create a DataFrame from the dictionary
+    df = pd.DataFrame(csv_dict)
+    # Write the DataFrame to a CSV file
+    df.to_csv(csv_file_path, index=False)
+
 def check_and_find_length(tensor):
     B, window, _ = tensor.shape
     lengths = []
@@ -267,15 +288,22 @@ def process_csv_files(opt, model_name):
      
         tmp_gt = torch.tensor(gt_data[filename[:-4]].dropna(), dtype=torch.float32)
 
-        assert tmp_gt.shape[0] == all_data[count]['lowerback_acc'].shape[0], "unmatched length"
+        if 'lowerback_acc' in all_data[count]:
+            assert tmp_gt.shape[0] == all_data[count]['lowerback_acc'].shape[0], "unmatched length"
+        elif 'l_latshank_acc' in all_data[count]:
+            assert tmp_gt.shape[0] == all_data[count]['l_latshank_acc'].shape[0], "unmatched length"
+        elif 'r_latshank_acc' in all_data[count]:
+            assert tmp_gt.shape[0] == all_data[count]['r_latshank_acc'].shape[0], "unmatched length"
+        else:
+            raise "No proper features."
 
         all_data[count]['ori_filename'] = filename
         all_data[count]['gt'] = tmp_gt
 
         count += 1
 
-    joblib.dump(all_data, open(os.path.join(opt.test_dpath, f"all_kaggle.p"), 'wb'))
-    test_data = split_by_window(opt, 'kaggle')
+    joblib.dump(all_data, open(os.path.join(opt.test_dpath, f"all_{model_name}.p"), 'wb'))
+    test_data = split_by_window(opt, model_name)
 
     joblib.dump(test_data, open(os.path.join(opt.test_dpath, 
                                             f"all_test_data_{model_name}_window{WINDOW}.p"), 'wb'))
@@ -287,92 +315,210 @@ def generate_gt_csv(opt):
     print('Generate ground truth csv.')
         
 def generate_model_output_csv(opt):
-    for model_name in DATASETS_FEATS_MODEL.keys():
-        if opt.enable_self_test and (model_name == 'daphnet' or model_name == 'turn'):
-            continue
 
-        test_data = joblib.load(os.path.join(opt.test_dpath, 
-                                             f"all_test_data_{model_name}_window{WINDOW}.p"))
+    from codes.fog_dataset import FoGDataset
+    test_ds_kaggle = FoGDataset(opt, 'kaggle')
+    dl = torch.utils.data.DataLoader(test_ds_kaggle, 
+                        batch_size=opt.batch_size, 
+                        shuffle=False, 
+                        pin_memory=False, 
+                        num_workers=0)
+    test_n_batch_kaggle = len(dl)
+    test_dl_kaggle = cycle_dataloader(dl)
 
-        gt = torch.stack([test_data[i]['gt'] for i in range(len(test_data.keys()))])
-        
-        from codes.unet_v4 import UNet
-        weights_path = f"codes/{model_name}.pt"
-        model = UNet(channel=len(DATASETS_FEATS_MODEL[model_name])*3, 
-                     feats=DATASETS_FEATS_MODEL[model_name])
-        model = model.to(opt.device)
-        weights = torch.load(weights_path, map_location=opt.device)['model']
-        model.load_state_dict(weights)
-        
-        model.eval()
-        avg_prec, avg_recall, avg_f1 = 0, 0, 0
-        with torch.no_grad():
-            for batch_idx in range(gt.shape[0]):
-                test_input = {}
-                for body_name in DATASETS_FEATS_MODEL[model_name]:
-                    model_input = test_data[batch_idx][body_name].unsqueeze(0) # (1, window, 3)
-                    test_input[body_name] = model_input[:,:,[2, 0, 1]].to(opt.device)
-                test_pred = model(test_input) # (B, window, 1)
-                prec, recall, f1 = evaluation_metrics(test_pred, gt.to(opt.device))
-                avg_prec += prec
-                avg_recall += recall
-                avg_f1 += f1
+    test_ds_turn = FoGDataset(opt, 'turn')
+    dl = torch.utils.data.DataLoader(test_ds_turn, 
+                        batch_size=opt.batch_size, 
+                        shuffle=False, 
+                        pin_memory=False, 
+                        num_workers=0)
+    test_n_batch_turn = len(dl)
+    test_dl_turn = cycle_dataloader(dl)
 
-                # print(test_pred.shape)
-                # print(prec, recall, f1)
-                # exit(0)
-        total_num = gt.shape[0]
-        print(avg_prec / total_num, avg_recall / total_num, avg_f1 / total_num)
-        exit(0)
-        torch.cuda.empty_cache()
+    test_ds_daphnet = FoGDataset(opt, 'daphnet')
+    dl = torch.utils.data.DataLoader(test_ds_daphnet, 
+                        batch_size=opt.batch_size, 
+                        shuffle=False, 
+                        pin_memory=False, 
+                        num_workers=0)
+    test_n_batch_daphnet = len(dl)
+    test_dl_daphnet = cycle_dataloader(dl)
 
-        statistics = {'F1 score': f1.item(), 'precision': prec.item(), 'recall': recall.item()}
-        with open('GuanRen_Statistics.csv', 'w', newline='') as csvfile:
-            fieldnames = ['F1 score', 'precision','recall']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerow(statistics)
-            print('Generate Statistics csv.')
+    assert test_n_batch_kaggle == test_n_batch_turn and test_n_batch_turn == test_n_batch_daphnet, \
+            "unequal length of dataset"
 
-        #*==============================================================================================
-        pred = torch.round(test_pred)  # (B, window, 1)
-        real = torch.argmax(gt[:, :, :2], dim=-1, keepdim=True)  # (B, window, 1)
-        mask = (gt[:, :, 2] != 1).unsqueeze(-1)  # (B, window, 1)
-        output = (pred * mask.float()).squeeze() # (B, window)
+    ############################################################################
+    from codes.unet_v4 import UNet
+    weights_path = f"codes/kaggle.pt"
+    model_kaggle = UNet(channel=len(DATASETS_FEATS_MODEL['kaggle'])*3, 
+                 feats=DATASETS_FEATS_MODEL['kaggle'])
+    model_kaggle = model_kaggle.to(opt.device)
+    weights = torch.load(weights_path, map_location=opt.device, weights_only=True)['model']
+    model_kaggle.load_state_dict(weights)
 
-        grouped_data = {}
-        for i in range(output.shape[0]):
-            sample = test_data[i]
-            trial_id = sample['trial_id']
+    weights_path = f"codes/turn.pt"
+    model_turn = UNet(channel=len(DATASETS_FEATS_MODEL['turn'])*3, 
+                 feats=DATASETS_FEATS_MODEL['turn'])
+    model_turn = model_turn.to(opt.device)
+    weights = torch.load(weights_path, map_location=opt.device, weights_only=True)['model']
+    model_turn.load_state_dict(weights)
+
+    weights_path = f"codes/daphnet.pt"
+    model_daphnet = UNet(channel=len(DATASETS_FEATS_MODEL['daphnet'])*3, 
+                 feats=DATASETS_FEATS_MODEL['daphnet'])
+    model_daphnet = model_daphnet.to(opt.device)
+    weights = torch.load(weights_path, map_location=opt.device, weights_only=True)['model']
+    model_daphnet.load_state_dict(weights)
+
+    ############################################################################
+
+
+    model_output = {}
+
+    cum_tp, cum_fp, cum_fn = 0.0, 0.0, 0.0     
+
+    model_kaggle.eval(), model_turn.eval(), model_daphnet.eval() 
+
+    with torch.no_grad():
+        for _ in tqdm(range(test_n_batch_kaggle), desc=f"test data"):
+            test_data_kaggle = next(test_dl_kaggle) 
+            test_data_turn = next(test_dl_turn) 
+            test_data_daphnet = next(test_dl_daphnet)  
+
+            assert test_data_kaggle['ori_filename'] == test_data_turn['ori_filename'] \
+                and test_data_daphnet['ori_filename'] == test_data_turn['ori_filename'], \
+                "test dataloader ori_filename doesn't match"
+            assert test_data_kaggle['start_t_idx'] == test_data_turn['start_t_idx'] \
+                and test_data_daphnet['start_t_idx'] == test_data_turn['start_t_idx'], \
+                "test dataloader start_t_idx doesn't match"
+            assert test_data_kaggle['end_t_idx'] == test_data_turn['end_t_idx'] \
+                and test_data_daphnet['end_t_idx'] == test_data_turn['end_t_idx'], \
+                "test dataloader end_t_idx doesn't match"
+
+            test_gt = test_data_kaggle['gt'] # (B, window, 3)
             
-            a = output[i].cpu().numpy()
-            a[a == 0.0] = 0
-            a[a == 1.0] = 1
-            a[a == 2.0] = 2
+            ############################################################################
+            test_pred_kaggle = 0
+            for permutation in PERMUTATIONS:
+                test_input = {}  
+                for body_name in DATASETS_FEATS_MODEL['kaggle']:  
+                    # (BS, window, 3)
+                    test_input[body_name] = test_data_kaggle[body_name][:,:,permutation]
+                    if not opt.preload_gpu:
+                        test_input[body_name] = test_input[body_name].to(opt.device)
+                test_pred_kaggle += model_kaggle(test_input) # (B, window, 1)
+            test_pred_kaggle /= len(PERMUTATIONS)
+            test_pred_kaggle *= WEIGHTS['kaggle']
+
+            # --------------------------------------------------
+            test_pred_turn_l = 0
+            side = 'l'
+            for permutation in PERMUTATIONS:
+                test_input = {}  
+                for body_name in DATASETS_FEATS_MODEL['turn']:  
+                    # (BS, window, 3)
+                    if body_name[0] != side:
+                        test_input[body_name] = torch.zeros_like(test_data_turn[body_name])\
+                                                .to(test_data_turn[body_name].device)
+                    else:
+                        test_input[body_name] = test_data_turn[body_name][:,:,permutation]
+                    if not opt.preload_gpu:
+                        test_input[body_name] = test_input[body_name].to(opt.device)
+                test_pred_turn_l += model_turn(test_input) # (B, window, 1)
+            test_pred_turn_l /= len(PERMUTATIONS)
+
+            test_pred_turn_r = 0
+            side = 'r'
+            for permutation in PERMUTATIONS:
+                test_input = {}  
+                for body_name in DATASETS_FEATS_MODEL['turn']:  
+                    # (BS, window, 3)
+                    if body_name[0] != side:
+                        test_input[body_name] = torch.zeros_like(test_data_turn[body_name])\
+                                                .to(test_data_turn[body_name].device)
+                    else:
+                        test_input[body_name] = test_data_turn[body_name][:,:,permutation]
+                    if not opt.preload_gpu:
+                        test_input[body_name] = test_input[body_name].to(opt.device)
+                test_pred_turn_r += model_turn(test_input) # (B, window, 1)
+            test_pred_turn_r /= len(PERMUTATIONS)
+
+            test_pred_turn = (test_pred_turn_l + test_pred_turn_r) / 2
+            test_pred_turn *= WEIGHTS['turn']
+            # --------------------------------------------------
+
+            test_pred_daphnet = 0
+            for permutation in PERMUTATIONS:
+                test_input = {}  
+                for body_name in DATASETS_FEATS_MODEL['daphnet']:  
+                    # (BS, window, 3)
+                    test_input[body_name] = test_data_daphnet[body_name][:,:,permutation]
+                    if not opt.preload_gpu:
+                        test_input[body_name] = test_input[body_name].to(opt.device)
+                test_pred_daphnet += model_daphnet(test_input) # (B, window, 1)
+            test_pred_daphnet /= len(PERMUTATIONS)
+            test_pred_daphnet *= WEIGHTS['daphnet']
+            ############################################################################
+
+
+            test_pred = test_pred_kaggle + test_pred_turn + test_pred_daphnet
+
+            tp, fp, fn = evaluation_metrics(test_pred, test_gt.to(opt.device))
             
-            if trial_id not in grouped_data:
-                grouped_data[trial_id] = a
-            else:
-                
-                grouped_data[trial_id] = np.concatenate((grouped_data[trial_id], a))
+            cum_tp += tp
+            cum_fp += fp
+            cum_fn += fn
 
-        data = {f"ModelOutput_Trial{key}": value.astype(int).tolist() \
-                for key, value in grouped_data.items()}
+            gt_lengths = check_and_find_length(test_gt) # [...] w/ length B
 
-        max_len = max(len(v) for v in data.values())
+            # keep track of model output #######################################
+            for i in range(test_pred.shape[0]):
+                ori_filename = test_data_kaggle['ori_filename'][i][:-4]
+                if ori_filename not in model_output:
+                    model_output[ori_filename] = {
+                        'start_t_idx': [], # [0, 1024, ...]
+                        'end_t_idx': [], # [1024, 2048, ...]
+                        'output': [], # (windows)
+                        'actual_len': [] # w/ length batch_size
+                    }
+    
+                model_output[ori_filename]['start_t_idx'].append(
+                    test_data_kaggle['start_t_idx'][i].item()  
+                )
+                model_output[ori_filename]['end_t_idx'].append(
+                    test_data_kaggle['end_t_idx'][i].item()
+                )
+                model_output[ori_filename]['output'].append(
+                    test_pred[i, :, :].squeeze().cpu()
+                )
+                model_output[ori_filename]['actual_len'].append(gt_lengths[i])
 
-        for key in data:
-            data[key] += [None] * (max_len - len(data[key]))
-            
-        for key in data:
-            for i in range(len(data[key])):
-                if data[key][i] is not None:
-                    data[key][i] = int(data[key][i])
 
-        df = pd.DataFrame(data)
+        prec = 0 if cum_tp == 0 else cum_tp / (cum_tp + cum_fp)
+        recall = 0 if cum_tp == 0 else cum_tp / (cum_tp + cum_fn)
+        f1 = 0 if prec == 0 or recall == 0 else 2 * (prec * recall) / (prec + recall)
+    
+    print('prec, recall, f1', prec, recall, f1)
 
-        # Save the DataFrame to a CSV file
-        df.to_csv('GuanRen_FoG_Model_Output_Data.csv', index=False)
+    statistics = {'F1 score': round(f1, 4), 'precision': round(prec, 4), 'recall': round(recall, 4)}
+    with open('submission/GuanRen_Statistics.csv', 'w', newline='') as csvfile:
+        fieldnames = ['F1 score', 'precision','recall']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow(statistics)
+        print('Generate Statistics csv.')
+
+    rearrange_output(model_output)
+
+    for key, value in model_output.items():
+        value['output'] = torch.cat(value['output']) # (N*window,)
+        actual_len = sum(value['actual_len'])
+        value['output'] = torch.round(value['output'][:actual_len])
+        model_output[key] = value['output']
+
+    dict_to_csv(model_output, 'submission/GuanRen_Model_Output.csv')
+    print('Generate model output csv.')
+
 
 def self_test_generate_model_output_csv(opt):
     model_name = 'kaggle'
@@ -391,7 +537,7 @@ def self_test_generate_model_output_csv(opt):
     model = UNet(channel=len(DATASETS_FEATS_MODEL[model_name])*3, 
                  feats=DATASETS_FEATS_MODEL[model_name])
     model = model.to(opt.device)
-    weights = torch.load(weights_path, map_location=opt.device)['model']
+    weights = torch.load(weights_path, map_location=opt.device, weights_only=True)['model']
     model.load_state_dict(weights)
 
 
@@ -429,7 +575,7 @@ def self_test_generate_model_output_csv(opt):
 
             # keep track of model output #######################################
             for i in range(test_pred.shape[0]):
-                ori_filename = test_data['ori_filename'][i]
+                ori_filename = test_data['ori_filename'][i][:-4]
                 if ori_filename not in model_output:
                     model_output[ori_filename] = {
                         'start_t_idx': [], # [0, 1024, ...]
@@ -471,93 +617,13 @@ def self_test_generate_model_output_csv(opt):
     rearrange_output(model_output)
 
     for key, value in model_output.items():
-        value['output'] = torch.cat(value['output'])
-        
-        print(value['actual_len'])
-        exit(0)
+        value['output'] = torch.cat(value['output']) # (N*window,)
+        actual_len = sum(value['actual_len'])
+        value['output'] = torch.round(value['output'][:actual_len])
+        model_output[key] = value['output']
 
-    exit(0)
-    for model_name in DATASETS_FEATS_MODEL.keys():
-        if opt.enable_self_test and (model_name == 'daphnet' or model_name == 'turn'):
-            continue
-
-        test_data = joblib.load(os.path.join(opt.test_dpath, 
-                                             f"all_test_data_{model_name}_window{WINDOW}.p"))
-
-        gt = torch.stack([test_data[i]['gt'] for i in range(len(test_data.keys()))])
-        
-        
-        
-        model.eval()
-        avg_prec, avg_recall, avg_f1 = 0, 0, 0
-        with torch.no_grad():
-            for batch_idx in range(gt.shape[0]):
-                test_input = {}
-                for body_name in DATASETS_FEATS_MODEL[model_name]:
-                    model_input = test_data[batch_idx][body_name].unsqueeze(0) # (1, window, 3)
-                    test_input[body_name] = model_input[:,:,[2, 0, 1]].to(opt.device)
-                test_pred = model(test_input) # (B, window, 1)
-                prec, recall, f1 = evaluation_metrics(test_pred, gt.to(opt.device))
-                avg_prec += prec
-                avg_recall += recall
-                avg_f1 += f1
-
-                # print(test_pred.shape)
-                # print(prec, recall, f1)
-                # exit(0)
-        total_num = gt.shape[0]
-        print(avg_prec / total_num, avg_recall / total_num, avg_f1 / total_num)
-        exit(0)
-        torch.cuda.empty_cache()
-
-        statistics = {'F1 score': f1.item(), 'precision': prec.item(), 'recall': recall.item()}
-        with open('GuanRen_Statistics.csv', 'w', newline='') as csvfile:
-            fieldnames = ['F1 score', 'precision','recall']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerow(statistics)
-            print('Generate Statistics csv.')
-
-        #*==============================================================================================
-        pred = torch.round(test_pred)  # (B, window, 1)
-        real = torch.argmax(gt[:, :, :2], dim=-1, keepdim=True)  # (B, window, 1)
-        mask = (gt[:, :, 2] != 1).unsqueeze(-1)  # (B, window, 1)
-        output = (pred * mask.float()).squeeze() # (B, window)
-
-        grouped_data = {}
-        for i in range(output.shape[0]):
-            sample = test_data[i]
-            trial_id = sample['trial_id']
-            
-            a = output[i].cpu().numpy()
-            a[a == 0.0] = 0
-            a[a == 1.0] = 1
-            a[a == 2.0] = 2
-            
-            if trial_id not in grouped_data:
-                grouped_data[trial_id] = a
-            else:
-                
-                grouped_data[trial_id] = np.concatenate((grouped_data[trial_id], a))
-
-        data = {f"ModelOutput_Trial{key}": value.astype(int).tolist() \
-                for key, value in grouped_data.items()}
-
-        max_len = max(len(v) for v in data.values())
-
-        for key in data:
-            data[key] += [None] * (max_len - len(data[key]))
-            
-        for key in data:
-            for i in range(len(data[key])):
-                if data[key][i] is not None:
-                    data[key][i] = int(data[key][i])
-
-        df = pd.DataFrame(data)
-
-        # Save the DataFrame to a CSV file
-        df.to_csv('GuanRen_FoG_Model_Output_Data.csv', index=False)
-
+    dict_to_csv(model_output, 'submission/GuanRen_Model_Output.csv')
+    print('Generate model output csv.')
 
 def parse_opt():
     parser = argparse.ArgumentParser()
@@ -587,8 +653,8 @@ if __name__ == "__main__":
     opt = parse_opt()
 
     if opt.enable_self_test:
-        # process_csv_files(opt, "kaggle")
-        # generate_gt_csv(opt)
+        process_csv_files(opt, "kaggle")
+        generate_gt_csv(opt)
         self_test_generate_model_output_csv(opt)
     else:
         for model_name in DATASETS_FEATS_MODEL.keys():
